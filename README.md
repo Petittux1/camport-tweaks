@@ -6,11 +6,14 @@
 | 功能 | 状态 |
 |---|---|
 | **传奇一瞬**（M3 / M9 / M10R） | ✅ 预览 + 成片都通 |
-| **调色盘** | ⬜ 未做 |
 | **实况运镜**（mode 231 自由 / 主角 / 红毯） | ✅ 能用，⚠️ 成片观感不理想（见下） |
+| **AI帮拍**（mode 168 / `0xa8`） | ✅ 不再崩溃（`fd=0` 自 10-02 18:29 起归零），⚠️ 成因未定位 |
+| **智能构图** | ⚠️ 开关显示开但**实际不生效**，且点不掉（`ai.smartcomp` 只是隔离开关） |
+| **调色盘** | ⬜ 未做 |
 
 > **本仓库为 Private。** 所有 hook 都是追加在 **XiaomiCamPort** 这个第三方模块之上，
-> 原模块**不是我的**。仓库里**不含**原模块的 `module.apk`、不含相机 APK、不含反编译产物。
+> 原模块**不是我的**。仓库里**不含**原模块的 `module.apk`、不含相机 APK、不含反编译产物
+> （`module.apk` / 相机 APK 只放在 Release 资产里）。
 > 正在联系原开发者，看能否走 fork / 上游合并的方式正式发布。
 
 ---
@@ -29,13 +32,18 @@
 ```
 legend_src/com/pudding/camport/hooks/
     MasterLiveTune.java   实况运镜：运镜动画时长 + 快门后 AF 冻结
-    Mode231Fix.java       实况运镜：闪退修复 + 绿色花屏修复 + 帧探针
+    Mode231Fix.java       实况运镜：闪退修复 + 绿色花屏修复 + 帧探针（live.probe 门控）
     Mode231Probe.java     实况运镜：开相机 id / 流配置探针
     LegendaryColor.java   传奇一瞬：M3/M9/M10R -> CubeLut 滤镜映射
+    SmartCompFix.java     智能构图：ai.smartcomp 隔离开关（+ 可选 submit 钩子）
+    HdrFix.java           AI帮拍：自动HDR互斥阻断 ai.hdrfix
 build_legend.sh           javac -> d8 -> zip -> apksigner -> pm install -r
 config.example.conf       全部可调键（拷到设备 config.conf 用）
 *.py                      成片分析脚本（下面单独说）
 ```
+
+模块打进 APK 的一共 **7 行** `assets/xposed_init`：
+原模块自带的 `MainHook` + 上面 6 个新类。
 
 ---
 
@@ -51,7 +59,7 @@ bash build_legend.sh
 1. 编译 Xposed 桩（仅编译期用，不进 dex）
 2. `javac --release 8` 编 `legend_src`
 3. `d8` 把新 class **合并**进原模块的 `classes.dex`
-4. 打包：重写 `assets/xposed_init`（五行，含 `MasterLiveTune`）
+4. 打包：重写 `assets/xposed_init`（**7 行** = `MainHook` + 6 个新类）
 5. `apksigner` 签名（v1+v2+v3）并 `pm install -r`
 
 **依赖（都在本机，不入库）：**
@@ -89,6 +97,17 @@ legend.filter.m3=77     M3 黑白传奇 -> 滤镜 id
 legend.filter.m9=84     M9 CCD 传奇
 legend.filter.m10r=73   M10R CMOS 传奇
 legend.degree=100       滤镜强度 0-100
+
+# ---- 帧探针（性能：默认只采 mode 231）----
+live.probe=231          off=整条探针停掉   231=只采实况运镜（默认，=10-01 原始行为）
+                        all=按尺寸白名单全采 ★AI帮拍/拍照/2亿 与 231 尺寸撞车，会误命中
+
+# ---- 智能构图（隔离用，见「还没解决」）----
+ai.smartcomp=1          0=完全不 hook 智能构图   1=启用下面的钩子
+ai.smartcomp.submit=0   0=只打日志   1=真的调 A3.g.w() 提交构图
+
+# ---- AI帮拍 / 自动HDR 互斥 ----
+ai.hdrfix=1             1=进入 AI帮拍 时阻断「自动HDR」互斥抢模式
 ```
 
 ---
@@ -170,8 +189,56 @@ f40->f45  k=1.050 (0.121)                 指令 1.039
 没有显式设置就是默认 `0.0` = 无穷远，8.6x 长焦超焦距可达几十米，主体必糊；
 而 AUTO 模式没有触发就不动镜头也不扫描，既冻住 AF 又完全不需要回写焦距。
 
-### 4. 还没解决
+### 4. AI帮拍 `fd=0` 连环崩溃（**已止血，成因未定位**）
 
+因果链是清楚的，日志 1:1 对齐：
+
+```
+进 AI帮拍(0xa8)
+  → 0.5~17.7s（中位 4.1s，22/23 在 10s 内）
+  → CSLMapBufferHW() Mapping CSL Buffer failed for fd = 0
+  → 每 ~330ms 一次 PrepareForRecovery，连续 6 次
+  → FATAL: Consecutive 6 recovery detected for logical cameraId: 7
+  → SIGABRT（`Fatal signal 6 … tid (Preview_X), pid (camera.provider)`）
+  → provider 重启 → 预览冻结 = 「卡 + 哒哒声」+ `CameraExitHint showErrorScreen`
+```
+
+**规模**：10-02 一天 93 次进 `0xa8`，其中 **40 次（44%）** 60s 内走到 `fd=0`，
+**全部落在 13:11 ~ 18:29:08** 这个窗口。18:29:08 之后 **0 次**；
+21:21 换回当前构建（6 新类 + 原 17 类全挂载）之后也 **0 次**。
+
+**已逐条排除**（每条都是日志统计，不是读码推断）：
+
+| 假设 | 证据 | 结论 |
+|---|---|---|
+| `SmartCompFix` | `ai.smartcomp=0`（关）期间仍崩 8 组 | ❌ |
+| `HdrFix` | 13:11~16:57 的崩时它还没进构建；17:09 起 44 条阻断日志只覆盖 11/40 | ❌ |
+| `LegendaryColor` | 140 条日志全落在 mode `0x100`，与 `0xa8` 无交集 | ❌ |
+| `Mode231Fix` / `Mode231Probe` | `live231size` 全天 14 条全是 `mode=231`；cid 覆写 0 次触发；探针 15:01 后未在非 231 跑过 | ❌ |
+| `MasterLiveTune` | AF 窗口只在 `startAutoZoom` 后 2 秒 | ❌ |
+| config 取值 | 18:08~18:10 与 18:29:41 之后**同配置**，前者崩后者不崩 | ❌ |
+| 流配置 | `1440x1080 / 640x480 / 4096x3072×7 / 8192x6144×2` 在「崩 6 / 不崩 6」里完全一致 | ❌ |
+| 快门次数、会话内第几次进、provider 年龄 | 方向都反或无差异 | ❌ |
+| `camera.feature.isSupportAiModule` | 全天 0 次被相机查询（`DeviceProbe` 挂了 5 个重载）是死的 | 不需回滚 |
+
+**所以：结论只能是「止血」，不是「修好」。** 唯一还没被实验否掉的结构差异是
+`build_legend.sh` 把原 `classes.dex` 连同新类一起重跑了一遍 d8（113824 → 163664 字节），
+但 jadx diff 显示那 17 个类的源码**完全一致**，也可能无辜。
+真凶要靠新的崩溃样本来二分（变体 A = 原 dex 字节不动 + 新类另开 `classes2.dex`；
+变体 B = 只重跑原 17 类、不带新类）。
+
+> `build.DEVICE=madrid`、`block.msg=11`、`pixel.fix`、`cvtype.natural`、`enable_mode`
+> 都是**原模块预设**，不是本仓库的 delta。
+
+### 5. 还没解决
+
+- **智能构图不生效**：开关显示开、`ai.smartcomp=1` 也在打日志，但实际画面没有构图裁剪。
+  想做「真裁剪」已经走不通 —— `com.xiaomi.camera.autoCrop.*` 的 vendor tag 在 HAL 里**全缺**。
+  目前卡在「构图引擎没喂数据」：`CompositionList` 拿不到，
+  而 `SmartCompositionSimpleASD` 的 verbose 日志在 logcat 里看不到。
+- **智能构图开关点不掉**：点了解除不了，一直显示开（小问题）。
+- `dex/classes6.dex`（2.25MB，含 `updateCompositionUI`）还没反编译。
+- `Logical CameraId = 15 is invalid` / `Out of bound camera 15`
 - 快门后 ~1.63s 的**成片时长硬上限**，两轮都没突破（`maxImage=8→60` 也无效）
 - 成片**前 0.5s 仍是静止画面**（这段内容本来就拍在快门之前，改动画时长救不了；
   要解决得把成片的时间窗整体后移，即动 ring 的 head / PTS 偏移）

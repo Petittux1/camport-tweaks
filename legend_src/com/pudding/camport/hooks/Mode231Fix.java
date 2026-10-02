@@ -73,6 +73,18 @@ public final class Mode231Fix implements IXposedHookLoadPackage {
 
     /** 当前 B2.c.c() 正在算哪个 mode（用来在帧采样里标注来源） */
     private static volatile int sCurMode;
+
+    /**
+     * 帧探针范围：0=关 / 1=只采 mode 231（=10-01 的原始行为，默认）/ 2=按尺寸白名单全采。
+     *
+     * 为什么必须能关：
+     *   AI帮拍(168)、拍照(163)、2亿(175) 的 2_5 实况流和 mode 231 是同一个尺寸
+     *   （1728x1296 / 2560x1440），只看尺寸就会误命中，于是探针会在**别人的会话里**
+     *   每帧扫 3 个 plane + 算均值，并在 acquireNextImage 的 afterHook 里同步写
+     *   近 1MB 的 PPM 到 /sdcard —— 实测 10-01 一天只命中 mode 231（106 次），
+     *   放开白名单后 10-02 命中了 162/163/168/175/231（写盘 2 -> 134 次）。
+     */
+    private static volatile int sProbeMode = 1;
     private static int sIdx231;
     private static int sIdx163;
     private static boolean sSaved231;
@@ -292,10 +304,24 @@ public final class Mode231Fix implements IXposedHookLoadPackage {
                     continue;
                 }
                 int eq = t.indexOf('=');
-                if (eq <= 0 || !"live231size".equals(t.substring(0, eq).trim())) {
+                if (eq <= 0) {
                     continue;
                 }
+                String k = t.substring(0, eq).trim();
                 String v = t.substring(eq + 1).trim();
+                if ("live.probe".equals(k)) {
+                    if ("off".equalsIgnoreCase(v) || "0".equals(v) || "false".equalsIgnoreCase(v)) {
+                        sProbeMode = 0;
+                    } else if ("all".equalsIgnoreCase(v) || "2".equals(v)) {
+                        sProbeMode = 2;
+                    } else {
+                        sProbeMode = 1;
+                    }
+                    continue;
+                }
+                if (!"live231size".equals(k)) {
+                    continue;
+                }
                 if ("off".equalsIgnoreCase(v) || "0".equals(v) || "false".equalsIgnoreCase(v)) {
                     sSizeFix = false;
                 } else if ("auto".equalsIgnoreCase(v)) {
@@ -316,7 +342,8 @@ public final class Mode231Fix implements IXposedHookLoadPackage {
                 }
             }
             log("live231size config=" + chosen + " on=" + sSizeFix
-                    + " auto=" + sSizeAuto + " " + sSizeW + "x" + sSizeH);
+                    + " auto=" + sSizeAuto + " " + sSizeW + "x" + sSizeH
+                    + " | live.probe=" + (sProbeMode == 0 ? "off" : (sProbeMode == 2 ? "all" : "231")));
         } catch (Throwable th) {
             err("ensureSizeCfg", th);
         } finally {
@@ -348,6 +375,12 @@ public final class Mode231Fix implements IXposedHookLoadPackage {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                             try {
+                                if (!sCfgDone) {
+                                    ensureSizeCfg();   // 只有首次会拿类锁；之后 sCfgDone 短路
+                                }
+                                if (sProbeMode == 0) {
+                                    return;   // live.probe=off：整条探针停掉（连 enc 帧日志也不打）
+                                }
                                 Object r = param.getResult();
                                 if (!(r instanceof android.media.Image)) {
                                     return;
@@ -372,6 +405,11 @@ public final class Mode231Fix implements IXposedHookLoadPackage {
                                 boolean is163 = (w == 2560 && h == 1440)
                                         || (w == 1728 && h == 1296 && !is231);
                                 if (!is231 && !is163) {
+                                    return;
+                                }
+                                // live.probe=231（默认）= 10-01 的原始行为：只采 mode 231。
+                                // 163/168/175 的 2_5 实况流尺寸和 231 撞车，光看尺寸会误命中。
+                                if (sProbeMode == 1 && sCurMode != 231) {
                                     return;
                                 }
                                 probeFrame(img, w, h, is231);
