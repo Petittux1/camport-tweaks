@@ -111,6 +111,19 @@ ai.smartcomp.ring.x=0.30   兜底矩形，★必须居中：x=0.5-w/2, y=0.5-h/2
 ai.smartcomp.ring.y=0.32   否则没主体时引导环永远提示「向下移动手机」
 ai.smartcomp.ring.src=0    0=人脸→触摸对焦→上一帧→兜底  3=只用兜底矩形
 ai.smartcomp.ring.autozoom=1  1=连续自动变焦（按 ring.fill 反算目标倍率）
+ai.smartcomp.submit=1    1=放行 submitAiComposition。★ 0 强拦会让 onAiEffectResult
+                        永远不回来 → 分析标志卡 false → 三个 chip 全部点不动（别改 0）
+# 稳定性三道门（治「变焦 1→1.2→1.4 来回跳」「引导框乱窜」）
+ai.smartcomp.ring.lock=1    1=主体锁定：多脸时挑和上一帧重合/最近的那张，不逐帧挑最高分
+ai.smartcomp.ring.wband=0.10 目标倍率迟滞带，|raw-目标| 没超过就不动目标
+ai.smartcomp.ring.walpha=0.08 目标倍率 EMA（0.30 太快≈没平滑）
+ai.smartcomp.ring.wrate=0.5   目标倍率速率上限 log/秒，把大跳变摊成缓动
+ai.smartcomp.ring.dead=0.06   执行器死区，原 0.012 比单步还小 → 一直在微调
+
+# App 内开关现在是**真开关**：关掉「智能构图」后 U3/t0/S0/A3.g.w/合成/变焦全停。
+# 采样来自 u2.H.isSwitchOn / u2.H.R(后置) 的 pref_smart_composition_key_<mode>，
+# 日志 tag=智能构图开关。⚠ 顺带修好「点不动」：FragmentAi 的 onClick 首行会因为
+# 「分析中」把点击吞掉，而本机 onAiEffectResult 只有放行 submitAiComposition 才会回来。
 
 # ---- 调色盘（拍照模式成片所见即所得）----
 palette.force=1         palette.inject=1        palette.dup=1

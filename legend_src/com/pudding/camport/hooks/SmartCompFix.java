@@ -298,12 +298,18 @@ import java.util.List;
  *
  * config: ai.smartcomp.ring.tip = <int>      （只有 ai.smartcomp = 8 时才读）
  * ============================================================
- *   float[5] = CompositionDataType 分类，默认 0。
+ *   float[5] = tipsType（**不是** CompositionDataType 的枚举序号，默认 0）。
  *     0/1 = TRACKING/MOTION_INVALID —— 正常跟随，环显示（**默认，先试这个**）
  *     2   = BEST_COMPOSITION        —— 直接判「已是最优构图」，且只有它会把
- *                                      ring.zoom 真正喂进连续变焦（i11==2 分支）
+ *                                      ring.zoom 真正喂进连续变焦
  *     3   = NOT_DETECTION_DATA      —— 判「未识别到主体」，走提示条不出环
- *   分类逻辑在 FragmentSmartCompositon.dk() 的 CompositionDataType 分派里。
+ *   ⚠ 两套编号天生错位，别拿枚举序号来对：h5/z.java 的枚举是
+ *     0=TRACKING 1=INVALID 2=NOT_DETECTION 3=BEST_COMPOSITION 4=BEST_COMP_MOTION
+ *     5=MOTION_INVALID，而 dk() 的分派是 `i9==2 → 枚举 BEST_COMPOSITION(3)`、
+ *     `i9==3 → 枚举 NOT_DETECTION(2)`；连续变焦那道门在 s6/s0.java:104-108
+ *     读的也是 tipsType：`if ((int) tipsType == 2) yVar.a = targetZoomRatio`。
+ *     所以**配置里写 2 = 最优构图 / 能自动变焦**，3 = 未识别。
+ *   分类逻辑在 h5/z.java dk()（jadx 显示为 FragmentSmartCompositon）里。
  *
  * config: ai.smartcomp.ring.src = 0|1|2|3     （只有 ai.smartcomp = 8 时才读）
  * ============================================================
@@ -370,6 +376,41 @@ import java.util.List;
  *   新检测框和「上一帧框按这一帧应有的变焦缩放挪过来」的 IoU 低于它就先不信，
  *   连续 5 帧都不信才承认主体真的变了（换人 / 走动）。
  *   调大 = 更稳但跟得慢；调小 = 跟得快但会抖。0 = 关门。
+ *
+ * config: ai.smartcomp.ring.wband = 0.0~0.6   （默认 0.10）
+ * ============================================================
+ *   **目标倍率的迟滞带**。raw want（当前倍率 × fill/frac）逐帧会跳
+ *   （人脸框宽一变，frac 就变），没带子时 EMA 会一路跟着走 → 镜头
+ *   1.0→1.2→1.4 来回抽（10-04 用户反馈「变焦老在跳，不稳定」）。
+ *   只有 |raw - 当前目标| > wband 时才允许移动目标，否则原地不动。
+ *   0 = 关（退回纯 EMA）；越大越稳但响应越钝。
+ *
+ * config: ai.smartcomp.ring.dead = 0.0~0.3    （默认 0.06）
+ * ============================================================
+ *   **执行器死区**：|want - curZoom| 没超过 dead 就一条 W4 都不发。
+ *   原来死区 0.012 比单步 0.03 还小 → 永远在 ±0.03 地微调，
+ *   观感就是「一直在放大、一直在微抖」。0 = 关（退回 0.012）。
+ *
+ * config: ai.smartcomp.ring.lock = 0|1      （默认 1）
+ * ============================================================
+ *   **主体锁定**。人脸检测每帧独立跑，多张脸时原来每帧按「分数最高」挑，
+ *   分数一翻转 bestIdx 就从画面这头跳到那头 → 中值/EMA/IoU 门再好也挡不住
+ *   「整框换地方」（10-04 14:50 实测 subj 每秒在 [1502,1085] 和 [1585,2285]
+ *   两块之间来回，wantZoom 跟着 1.52 ↔ 1.13 来回拽）。
+ *   锁定后：有上一帧主体时改挑「和它重合/离它最近的那张」，人没动就永远不换脸；
+ *   只有它 800ms 没再出现才放开重找。0 = 关（回到每帧挑最高分）。
+ *
+ * config: ai.smartcomp.ring.walpha = 0.02~1.0（默认 0.08）
+ * ============================================================
+ *   **目标倍率的 EMA 系数**。原来硬编码 0.30 → 约 3 帧就贴上 raw，等于没平滑，
+ *   raw 一抖镜头就抽。0.08 ≈ 0.4s 时间常数，画面上是「缓慢移过去」。
+ *
+ * config: ai.smartcomp.ring.wrate = 0.0~5.0 （默认 0.5）
+ * ============================================================
+ *   **目标倍率的最大变化速率**，log 空间 / 秒（0.5 ≈ 每秒最多 ×1.65 或 ÷1.65）。
+ *   迟滞带只挡得住小幅抖动，挡不住 raw 一路**单向大跳**（实测 want 1.52→1.13）。
+ *   有速率上限后，再大的跳变也得花够时间走完 → 观感是「缓慢回位」而不是「跳一下」。
+ *   0 = 关。
  *
  * config: ai.smartcomp.dbgindex = <int>   （只有 ai.smartcomp = 7 时才读）
  * ============================================================
@@ -491,6 +532,7 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
     private static final String C_SUBMIT = "A3.g";
     /** v2 拦截器（jadx p154s6.s0，dex 真名 s6.s0）—— 档8 的合成数据挂在这上面 */
     private static final String C_S0_V2 = "s6.s0";
+    private static final String C_AI_FRAG = "com.android.camera.features.mode.ai.FragmentAi";
     /** s6.s0 的 v2 数据源 float[6]（dex 真名 c；jadx 改叫 f17140c） */
     private static final String F_V2_DATA = "c";
     /** s6.s0 持有的 h5.J manager（dex 真名 a；jadx 改叫 f17139a） */
@@ -519,6 +561,15 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
     private static String sLastOut;
     // 拦截器对比探针：i.onCaptureResultNext 的签名串，只在变化时打
     private static String sLastItr;
+
+    // ---- 用户在相机里那个「智能构图」开关（u2.H / pref_smart_composition_key_<mode>）----
+    //   -1 = 还没读到（此时按「开」处理，保持原有行为）
+    //    0 = 用户关了 → 所有门一律不抬、不合成、不驱动变焦 = 零干预
+    //    1 = 用户开了 → 照常抬门 + 合成
+    // 没有这个开关的话，U3/f17374a 被我们无条件强抬 → appendInterceptor 永远选中
+    // v2、3815 永远注册、float[6] 每帧照喂 → 用户在设置里点了关也停不下来。
+    private static volatile int sUserOn = -1;
+    private static volatile String sUserOnWhy;
 
     // ---- config ----
     private static volatile boolean sCfgDone;
@@ -588,6 +639,31 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
     private static long sRingZoomPause;
     /** 目标倍率的 EMA（raw want → 平滑 → 才交给执行器） */
     private static float sRingWant;
+    // ring.wband 目标倍率的**迟滞带**：|raw - sRingWant| 没超过它就完全不动目标。
+    //   没有带子时 raw 逐帧在 1.15 / 1.72 / 1.34 之间抖（人脸框宽逐帧变），
+    //   EMA 会一路跟着走 → 镜头就在 1.0↔1.2↔1.4 来回抽（用户 10-04 反馈）。0=关。
+    private static volatile float sRingWantBand = 0.10f;
+    // ring.dead 执行器死区：|want - cur| 小于它就不下发（≈ 2 个 step）。
+    //   原来是 0.012，比单步 0.03 还小 → 永远在 ±0.03 地微调，看着就是「一直在放大」。
+    private static volatile float sRingDead = 0.06f;
+    // ring.walpha 目标倍率 EMA 系数（0.02 最慢 / 1 立即跟随）。
+    //   原来硬编码 0.30 → 约 3 帧就贴上 raw，等于没平滑；raw 一抖镜头就抽。
+    //   0.08 ≈ 0.4s 时间常数，画面是「缓慢移过去」。
+    private static volatile float sRingWantAlpha = 0.08f;
+    // ring.wrate 目标倍率的**最大变化速率**，log 空间 / 秒（0.5 ≈ 每秒最多 ×1.65）。
+    //   迟滞带只能挡住小幅抖动，挡不住 raw 从 1.5 一路掉到 1.1 这种**单向大跳**；
+    //   有了速率上限，再大的跳变也得花够时间走完 → 观感是「缓慢回位」而不是「跳一下」。
+    //   0 = 关。
+    private static volatile float sRingWantRate = 0.5f;
+    /** 上一次推进目标倍率的时刻（ms），按真实 dt 限速 */
+    private static long sRingWantAt;
+    // ring.lock 1=主体锁定（默认）。人脸检测每帧独立跑，多张脸时按「分数最高」逐帧挑，
+    //   分数一翻转整框就跳到画面另一头（10-04 14:50 实测 subj 每秒在上下两块之间来回）。
+    //   锁定后优先挑和上一帧重合/最近的那张脸，只有它连续 N 帧消失才换人。0=每帧挑最高分。
+    private static volatile int sRingLock = 1;
+    /** 主体锁定：上一帧被选中的脸在**传感器坐标**下的框（用来做连续性） */
+    private static float[] sLockRect;
+    private static long sLockAt;
     private static volatile int sSubmit;     // 0=挡 submitAiComposition  1=放行
     // ai.smartcomp.dbgindex = <int>：档7 合成数据用的构图索引。
     //   r0.acceptResult 里合成 r.a{a=11, b=index}：
@@ -1115,6 +1191,142 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
         }
 
         // ============================================================
+        // ★ 开关权威：相机设置里的「智能构图」 = u2.H / pref_smart_composition_key_<mode>
+        //   在动任何门之前先把用户开关采到手（sUserOn），之后：
+        //     · U3 / t0 / S0 强抬      → 开关关了就不抬（不换流、不下发会话参数）
+        //     · A3.g.w() 拦截          → 开关关了就放行（别把「效果推荐」一起带死）
+        //     · consumeResult 合成     → 开关关了就不喂假数据
+        //     · ringTick（取景框+变焦）→ 开关关了就不动镜头
+        //   ★ u2.H.R() 那道门刻意**不**吃开关：f17374a 必须恒 true，否则
+        //     下次再把开关打开时 isSwitchOn 出不去、开关再也打不上来。
+        //   采不到（-1）时按「开」处理 = 保持旧行为，不会更坏。
+        // ============================================================
+        // ★ 只从 R() / isSwitchOn 两处采开关（两处都带着「当前 mode」）。
+        //   不去挂父类 AbstractC0716c.getComponentValue：那会连别的设置项
+        //   （滤镜/水印/...）的存值也读进来，把开关判错。
+        //   也不许在安装期直调相机单例（g2.a.a()）：会赶在 Application 之前
+        //   把 <clinit> 触发失败 → 「Rejecting re-init on previously-failed
+        //   class g2.a$a」→ 相机黑屏进不去（10-04 14:08 实测）。
+        try {
+            XposedHelpers.findAndHookMethod(C_COMP, sCl, "isSwitchOn", int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                            try {
+                                int mode = ((Integer) p.args[0]).intValue();
+                                if (mode != MODE_PHOTO && mode != MODE_AI_HELP) {
+                                    return;
+                                }
+                                boolean on = Boolean.TRUE.equals(p.getResult());
+                                if (!on) {
+                                    // false 有两种可能：存值就是 OFF，或被 f17374a 挡住。
+                                    // 存值才是用户的意思，读出来区分。
+                                    on = "ON".equals(String.valueOf(
+                                            XposedHelpers.callMethod(p.thisObject,
+                                                    "getComponentValue", p.args[0])));
+                                }
+                                setUserOn(on, "isSwitchOn(" + mode + ")");
+                            } catch (Throwable th) {
+                                err(th);
+                            }
+                        }
+                    });
+            log("hook u2.H.isSwitchOn ok（采开关）");
+        } catch (Throwable th) {
+            log("!! hook u2.H.isSwitchOn 失败 " + th);
+        }
+
+        // reInit 一结束就采开关。★ 不能挂 before：R(C) 的参数字段在 dex 里
+        //   是别的名字（jadx 叫 f8774a，dex 里没有），取不到 mode。
+        //   after 时 this.mCurrentMode 已经是本轮 mode 了（真实字段名，dex 里在）。
+        try {
+            XposedHelpers.findAndHookMethod(C_COMP, sCl, "R", Object.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                            try {
+                                int mode = XposedHelpers.getIntField(p.thisObject, "mCurrentMode");
+                                Object v = XposedHelpers.callMethod(p.thisObject,
+                                        "getComponentValue", Integer.valueOf(mode));
+                                setUserOn("ON".equals(String.valueOf(v)),
+                                        "R() 后 mode=" + mode + " 存值=" + v);
+                            } catch (Throwable th) {
+                                logN("swsamp", "采开关失败(R) " + th, 600);
+                            }
+                        }
+                    });
+            log("hook u2.H.R 后采开关 ok");
+        } catch (Throwable th) {
+            log("!! hook u2.H.R 后采开关 失败 " + th);
+        }
+        // ★ 严禁在这里直接去调相机自己的单例（g2.a.a() 之类）直读开关：
+        //   这会赶在 Application 之前把它的 <clinit> 触发掉，一旦失败
+        //   「Rejecting re-init on previously-failed class g2.a$a」会让整个
+        //   相机黑屏进不去（10-04 14:08 实测）。开关只从 R()/isSwitchOn 采。
+
+        // ============================================================
+        // ★ AI帮拍「智能构图」开关点不动 / 效果识别一直转圈 —— 根因在这 ★
+        //   FragmentAi.onClick 第一行：
+        //       if (!f8958y0) { "onClick ignore while analyzing"; return; }
+        //   f8958y0 = 「分析已结束」，只有 onAiEffectResult / onAiPoseResult
+        //   回来时调 ft(..., true) 才会置上。本机 AI 结果一直不回来 → 它永远
+        //   是 false → 智能构图 / 效果推荐 / 姿势引导 三个按钮全被吞
+        //   （10-04 14:16、14:34 实测连点几十次全是 ignore，
+        //     pref_smart_composition_key_168 永远改不动）。
+        //   ① ft(str,false) 一律跳过 —— 不许它把自己按回「分析中」
+        //   ② UI 起来后补一次 ft(str,true) —— 把开机就卡在 false 的状态拉起来
+        //   ft() 本体只有一行 log + 一个字段赋值，跳过/多调一次都安全。
+        // ============================================================
+        boolean[] aiFtOk = {false};
+        try {
+            XposedHelpers.findAndHookMethod(C_AI_FRAG, sCl, "ft",
+                    String.class, boolean.class, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                            try {
+                                if (!Boolean.TRUE.equals(p.args[1])) {
+                                    p.setResult(null);   // void：跳过原方法体
+                                    logN("aiunstick", "FragmentAi.ft(" + p.args[0]
+                                            + ", false) 已跳过 → 不再卡 onClick", 120);
+                                }
+                            } catch (Throwable th) {
+                                err(th);
+                            }
+                        }
+                    });
+            aiFtOk[0] = true;
+            log("hook FragmentAi.ft ok（分析标志不会被按回 false）");
+        } catch (Throwable th) {
+            log("!! hook FragmentAi.ft 失败 " + th);
+        }
+        if (aiFtOk[0]) {
+            // getFragmentId() 是 FragmentAi 自己 final 实现的（返回 3821），
+            // UI 建起来必被调到 —— 比 onResume 更保险（onResume 不一定被覆写）。
+            for (String m : new String[]{"getFragmentId", "onResume"}) {
+                try {
+                    final String which = m;
+                    XposedHelpers.findAndHookMethod(C_AI_FRAG, sCl, m, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                            try {
+                                XposedHelpers.callMethod(p.thisObject, "ft",
+                                        "camport", Boolean.TRUE);
+                                logN("aiunstick",
+                                        "FragmentAi." + which + "() → 置分析结束，onClick 恢复",
+                                        60);
+                            } catch (Throwable th) {
+                                err(th);
+                            }
+                        }
+                    });
+                    log("hook FragmentAi." + m + " ok（兜底置分析结束）");
+                } catch (Throwable th) {
+                    log("!! hook FragmentAi." + m + " 失败 " + th);
+                }
+            }
+        }
+
+        // ============================================================
         // ★ ai.smartcomp = 5 / 6 / 7：只抬 V3，逼相机走 v1（ASD 代 + PIP 样张框）
         //    U3 / t0 / S0 一个都不碰 —— 因为抬 U3 会把相机推上 v2 死路。
         //    见文件头「三、相机里其实有两代实现」。
@@ -1130,6 +1342,9 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                     @Override
                     protected void afterHookedMethod(MethodHookParam p) throws Throwable {
                         try {
+                            if (!gateOpen()) {
+                                return;   // 用户关了智能构图 → 不抬 asd.aiComposition
+                            }
                             Object orig = p.getResult();
                             p.setResult(Boolean.TRUE);
                             logN("V3", "V3 " + orig + " -> true  (抬 asd.aiComposition → 走 v1)", 0);
@@ -2238,6 +2453,9 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                     @Override
                     protected void afterHookedMethod(MethodHookParam p) throws Throwable {
                         try {
+                            if (!gateOpen()) {
+                                return;   // 用户关了 → 不抬 autoCropVersion，相机走原生
+                            }
                             Object orig = p.getResult();
                             p.setResult(Boolean.TRUE);
                             budget("U3 " + orig + " -> true  (抬 autoCropVersion 门)");
@@ -2264,6 +2482,9 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
                             try {
+                                if (!gateOpen()) {
+                                    return;   // 开关关了 → 别拦 submitAiComposition，放行原生
+                                }
                                 p.setResult(null);   // void 方法：跳过原方法体 = no-op
                                 if (!sSubmitLogDone) {
                                     sSubmitLogDone = true;
@@ -2291,6 +2512,9 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                     @Override
                     protected void afterHookedMethod(MethodHookParam p) throws Throwable {
                         try {
+                            if (!gateOpen()) {
+                                return;   // 用户关了 → 比例门不动
+                            }
                             List<String> out = new ArrayList<String>();
                             Object orig = p.getResult();
                             if (orig instanceof List) {
@@ -2331,6 +2555,9 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                             @Override
                             protected void afterHookedMethod(MethodHookParam p) throws Throwable {
                                 try {
+                                    if (!gateOpen()) {
+                                        return;   // 用户关了 → 不下发 autoCropEnable
+                                    }
                                     Object arg = p.args[0];
                                     if (!(arg instanceof String)
                                             || !TAG_ENABLE.equals(arg)) {
@@ -2394,35 +2621,14 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                     + "（门1..4=U3/t0/S0/R；不抬 V3、不强抬 F.d0 → PIP 框不注册）"
                     + (sRing == 1 ? "，合成 autoCropData" : "，但 ring=0 不合成（对照组）"));
 
-            // ★ 档8 必须挡 submitAiComposition，与 ai.smartcomp.submit 无关 ★
-            //   U3 抬门后 x.t0(mode) 会变 true → A3.g.w() 被触发 →
-            //   AI 分析一旦不回来，FragmentAi 的 "onClick ignore while analyzing"
-            //   会把后续点击全丢掉（退化成「点了没反应」）。
-            //   v2 只靠 updateSmartComposition 下发的会话参数 + autoCropData tag，
-            //   走不到 v1 那条 submitAiComposition，所以挡掉是安全的。
-            //   sSubmit<=0 时上面 ⑤ 已经装过，别重复装。
-            if (sSubmit > 0) {
-                try {
-                    XposedHelpers.findAndHookMethod(C_SUBMIT, sCl, "w", new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
-                            try {
-                                p.setResult(null);
-                                if (!sSubmitLogDone) {
-                                    sSubmitLogDone = true;
-                                    log("A3.g.w() 拦截 → submitAiComposition 不下发"
-                                            + " (档8 强制，ai.smartcomp.submit 被忽略)");
-                                }
-                            } catch (Throwable th) {
-                                err(th);
-                            }
-                        }
-                    });
-                    log("hook A3.g.w ok (档8 强制挡 submitAiComposition)");
-                } catch (Throwable th) {
-                    log("!! hook A3.g.w 失败 " + th);
-                }
-            }
+            // ★ 档8 **不再**强制挡 submitAiComposition（10-04 14:16 实测教训）★
+            //   旧做法：挡掉 A3.g.w() 想避免「AI 分析不回来 → onClick ignore
+            //   while analyzing → 点了没反应」。结果正好相反：
+            //     submitAiTuning 发出 → 紧接着 w() 被我们拦掉 →
+            //     onAiEffectResult 永远不回来 → setAnalyzeFinish 一直 false →
+            //     FragmentAi.onClick 全被 "ignore while analyzing" 吞掉 →
+            //     **智能构图开关点不动、效果识别一直转圈卡住**。
+            //   拦不拦只由 ai.smartcomp.submit（上面 ⑤，带 gateOpen）决定。
 
             if (sRing != 1) {
                 return;
@@ -2434,6 +2640,20 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                             @Override
                             protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
                                 try {
+                                    if (!gateOpen()) {
+                                        // 用户关了智能构图 → 不喂假数据；把之前合成的那份
+                                        // 清掉，免得残留一帧把引导环又顶出来
+                                        Object stale = XposedHelpers.getObjectField(
+                                                p.thisObject, F_V2_DATA);
+                                        if (stale instanceof float[]) {
+                                            XposedHelpers.setObjectField(
+                                                    p.thisObject, F_V2_DATA, null);
+                                            logN("ringoff",
+                                                    "开关=关 → 清掉合成的 autoCropData，交回原生",
+                                                    300);
+                                        }
+                                        return;
+                                    }
                                     Object cur = XposedHelpers.getObjectField(p.thisObject, F_V2_DATA);
                                     if (cur instanceof float[] && ((float[]) cur).length == 6) {
                                         float[] d = (float[]) cur;
@@ -2573,12 +2793,13 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
      * 返回 null = 这一帧没有可用主体。
      */
     private static android.graphics.Rect ringSubject(android.hardware.camera2.CaptureResult res,
-                                                     android.graphics.Rect crop) {
+                                                     android.graphics.Rect crop,
+                                                     android.graphics.Rect lock) {
         if (res == null || crop == null || sRingSrc == 3) {
             return null;
         }
         if (sRingSrc != 2) {
-            android.graphics.Rect f = ringFace(res);
+            android.graphics.Rect f = ringFace(res, lock);
             if (f != null) {
                 return f;
             }
@@ -2590,7 +2811,8 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
     }
 
     /** 人脸：并集（得分 ≥50 的都算一组；一个都不到就用得分最高的那个） */
-    private static android.graphics.Rect ringFace(android.hardware.camera2.CaptureResult res) {
+    private static android.graphics.Rect ringFace(android.hardware.camera2.CaptureResult res,
+                                                  android.graphics.Rect lock) {
         android.hardware.camera2.params.Face[] faces;
         try {
             faces = res.get(android.hardware.camera2.CaptureResult.STATISTICS_FACES);
@@ -2616,8 +2838,49 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
         if (bestIdx < 0 || bestScore < 20) {
             return null;
         }
-        // 分数太低的脸基本是误检，别让它把框带偏
-        int th = Math.max(30, (int) (bestScore * 0.5f));
+        // ★ 主体锁定 ★（ring.lock=1）
+        //   多张脸时上面这段「挑分数最高的」每帧是**独立**算的：分数一翻转，bestIdx
+        //   就从画面这头跳到那头 → 外层的中值/EMA/IoU 门再好也挡不住「整框换地方」
+        //   （10-04 14:50 实测 subj 每秒在 [1502,1085] 和 [1585,2285] 两块之间来回，
+        //    wantZoom 跟着 1.52 ↔ 1.13 来回拽）。
+        //   有上一帧主体时改成「挑和它重合/离它最近的那张」，人没动就永远不换脸。
+        if (sRingLock == 1 && lock != null && lock.width() > 0 && lock.height() > 0) {
+            float best = -1e9f;
+            int pick = -1;
+            float rad = Math.max(lock.width(), lock.height());
+            for (int i = 0; i < faces.length; i++) {
+                android.graphics.Rect r = faces[i] == null ? null : faces[i].getBounds();
+                if (r == null || r.width() <= 0 || r.height() <= 0) {
+                    continue;
+                }
+                if (faces[i].getScore() < 20) {
+                    continue;
+                }
+                float iou = ringIou(lock.left, lock.top, lock.width(), lock.height(),
+                        r.left, r.top, r.width(), r.height());
+                float dx = r.centerX() - lock.centerX();
+                float dy = r.centerY() - lock.centerY();
+                float dist = (float) Math.sqrt(dx * dx + dy * dy);
+                // 既不重合又离得远的不参与，免得三张脸里反而挑了个最远的
+                if (iou <= 0f && dist > rad * 1.5f) {
+                    continue;
+                }
+                float s = iou * 2f - dist / (rad + 1f);
+                if (s > best) {
+                    best = s;
+                    pick = i;
+                }
+            }
+            if (pick >= 0) {
+                if (pick != bestIdx) {
+                    logN("ringlock", "主体锁定：本帧最高分是 #" + bestIdx
+                            + "，仍认上一帧那张 #" + pick, 60);
+                }
+                bestIdx = pick;
+            }
+        }
+        // 分数太低的脸基本是误检，别让它把框带偏（按**被选中**那张算，不是全组最高）
+        int th = Math.max(30, (int) (faces[bestIdx].getScore() * 0.5f));
         // ★ 只把**挨在一起**的脸并成一组（同一个人 / 同一群人）。
         //   原来是「所有达标的脸全 union」：背景里另有一张脸时框会被拉成一大片，
         //   变焦又按这个大框反算目标倍率 → 一会儿拉近一会儿拉远，看着就乱
@@ -2958,6 +3221,15 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
         if (sRingProbe == 1) {
             ringProbe(res);
         }
+        if (!gateOpen()) {
+            // 用户关了智能构图 → 不算框、不驱动变焦；把变焦状态清干净，
+            // 否则重开时会拿着上一轮的 cmd / want 直接接着跳。
+            sRingWant = 0f;
+            sRingZoomCmd = 0f;
+            sRingZoomPause = 0L;
+            sRingWantAt = 0L;
+            return;
+        }
         if (sRing != 1 || sRingSrc == 3) {
             return;
         }
@@ -2993,8 +3265,33 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
             return;
         }
 
-        android.graphics.Rect sub = ringSubject(res, crop);
         long now = android.os.SystemClock.elapsedRealtime();
+        // ★ 主体锁定：把上一帧**被选中**的脸（传感器坐标）递给选脸逻辑。
+        //   传感器坐标以 SCALER_CROP_REGION 为基准、不随变焦变，所以跨帧直接可比。
+        //   超过 800ms 没再确认过就放开锁，免得人真走了还死咬着旧位置。
+        android.graphics.Rect lock = null;
+        if (sRingLock == 1 && sLockRect != null && now - sLockAt <= 800L) {
+            lock = new android.graphics.Rect(Math.round(sLockRect[0]), Math.round(sLockRect[1]),
+                    Math.round(sLockRect[0] + sLockRect[2]), Math.round(sLockRect[1] + sLockRect[3]));
+        }
+        android.graphics.Rect sub = ringSubject(res, crop, lock);
+
+        // ★ 剔除不可信主体 ★
+        //   检测偶尔会吐出贴边碎块（实测 raw=(-8.6,112,74,69)，宽只有 crop 的 1.8%，
+        //   还有 [0,1481][162,2183] 这种被画面左边切掉的）。拿这种框算 frac 会把
+        //   目标倍率直接拽走，画面就是「框一跳变焦就抽」。
+        //   宽度阈值按 1/curZoom 缩（人脸报告宽 ∝ 1/curZoom），高倍率不误杀。
+        if (sub != null) {
+            float cw = crop.width();
+            float minW = cw * 0.05f / (curZoom > 1f ? curZoom : 1f);
+            boolean clipped = sub.left - crop.left <= 1 || sub.top - crop.top <= 1
+                    || crop.right - sub.right <= 1 || crop.bottom - sub.bottom <= 1;
+            if (sub.width() < minW || (clipped && sub.width() < cw * 0.15f)) {
+                logN("ringbadsubj", "ringTick 丢弃不可信主体 " + sub.toShortString()
+                        + "（minW=" + (int) minW + (clipped ? "，贴边" : "") + "）", 60);
+                sub = null;
+            }
+        }
 
         // ---- 变焦目标 ----
         float wantZoom = curZoom;
@@ -3067,6 +3364,10 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                     sPrevRawCur = curZoom;
                     sRingSeen = now;
                     subW = w0;
+                    // 锁定跟着走：只有被时域门接受的那帧才换锁，
+                    // 被挡下的乱跳不会把锁拽走（否则锁本身就成了新的抖动源）
+                    sLockRect = new float[]{sub.left, sub.top, sub.width(), sub.height()};
+                    sLockAt = now;
                     // EMA 平滑（框跟得上，但不抖）
                     float a = sRingSmooth;
                     if (sRingRect == null) {
@@ -3128,11 +3429,50 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                     if (raw > sRingZMax) {
                         raw = sRingZMax;
                     }
-                    // 目标本身也做一次 EMA —— 变焦是执行器，目标抖一下镜头就会来回抽
+                    // 目标本身也做一次 EMA —— 变焦是执行器，目标抖一下镜头就会来回抽。
+                    // ★ 迟滞带：raw 离当前目标不到 ring.wband 就**完全不动**目标。
+                    //   没这道门时 raw 逐帧在 1.15 / 1.72 / 1.34 之间乱跳（人脸框宽一变
+                    //   frac 就变），EMA 一路跟着走 → 镜头 1.0↔1.2↔1.4 来回抽。
+                    // ★ 速率上限：迟滞带只挡得住小幅抖，挡不住 raw 一路单向大跳
+                    //   （实测 14:50:14→16 want 1.52→1.13）。先把目标夹在
+                    //   「每秒 wrate 个 log 单位」内，再做 EMA → 大跳变被摊成缓动。
+                    float dt = 0f;
+                    if (sRingWantAt > 0L) {
+                        dt = (now - sRingWantAt) / 1000f;
+                        if (dt < 0f) {
+                            dt = 0f;
+                        }
+                        if (dt > 0.5f) {
+                            dt = 0.5f;
+                        }
+                    }
+                    sRingWantAt = now;
                     if (sRingWant <= 0f) {
-                        sRingWant = raw;
-                    } else {
-                        sRingWant += (raw - sRingWant) * 0.30f;
+                        // 从**当前**倍率起步，不要直接跳到 raw。
+                        // 主体丢失/开关重开后 sRingWant 会被清零，这时若直接赋 raw，
+                        // 会被下面的 cur×2 钳位夹成一次瞬移（实测 want 直接 1.12→2.0）；
+                        // 起点取 curZoom 就能顺着速率上限滑过去。
+                        sRingWant = curZoom;
+                    } else if (sRingWantBand <= 0f
+                            || Math.abs(raw - sRingWant) > sRingWantBand) {
+                        float target = raw;
+                        if (sRingWantRate > 0f && dt > 0f) {
+                            float l = (float) Math.log(target / sRingWant);
+                            float cap = sRingWantRate * dt;
+                            if (l > cap) {
+                                target = sRingWant * (float) Math.exp(cap);
+                            } else if (l < -cap) {
+                                target = sRingWant * (float) Math.exp(-cap);
+                            }
+                        }
+                        float wa = sRingWantAlpha;
+                        if (wa <= 0f) {
+                            wa = 0.08f;
+                        }
+                        if (wa > 1f) {
+                            wa = 1f;
+                        }
+                        sRingWant += (target - sRingWant) * wa;
                     }
                     float t = sRingWant;
                     // 一次只允许往目标靠 0.5x..2x，避免镜头来回抽
@@ -3160,6 +3500,8 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
             sRingWant = 0f;
             ringMedReset();
             sPrevRaw = null;
+            sLockRect = null;
+            sLockAt = 0L;
             sPrevRawCur = 0f;
             sGateMiss = 0;
             try {
@@ -3235,7 +3577,10 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
         // 但如果相机动画还在飞（cur 落在 cmd 后面），拿 cmd 当基线才不会把命令往回发。
         float base = Math.abs(want - cur) < Math.abs(want - sRingZoomCmd) ? cur : sRingZoomCmd;
         float d = want - base;
-        if (Math.abs(d) < 0.012f) {
+        // ★ 死区：已经在目标附近就别再发命令。原来的 0.012 比单步 0.03 还小 →
+        //   每一帧都能凑出一点偏差、都发一条 ±0.03，观感就是「一直在放大/一直在抖」。
+        float dead = sRingDead > 0f ? sRingDead : 0.012f;
+        if (Math.abs(d) < dead) {
             return;
         }
         float step = d > 0f ? Math.min(d, 0.030f) : Math.max(d, -0.030f);
@@ -3254,6 +3599,28 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
         } catch (Throwable th) {
             logN("ringzoomerr", "连续变焦失败 " + th, 0);
         }
+    }
+
+    /**
+     * 记录用户在相机设置里那个「智能构图」开关的状态（只在变化时打日志）。
+     *   -1 = 还没采到 → gateOpen() 视为「开」，保持原有行为
+     *    0 = 用户关了 → 下面所有强抬/合成/变焦一律不做
+     *    1 = 用户开了 → 照常
+     */
+    private static void setUserOn(boolean on, String why) {
+        int n = on ? 1 : 0;
+        if (sUserOn == n) {
+            return;
+        }
+        sUserOn = n;
+        sUserOnWhy = why;
+        log("智能构图开关 = " + (on ? "开" : "关") + "  (" + why + ")"
+                + (on ? "" : "  → U3/t0/S0 强抬 + A3.g.w 拦截 + 合成 + 变焦 全部停"));
+    }
+
+    /** 所有「强抬 / 合成」的统一闸门：开关关了就零干预 */
+    private static boolean gateOpen() {
+        return sUserOn != 0;
     }
 
     /** 门①③④ 都是低频的，② 也是；统一限流防刷屏 */
@@ -3929,6 +4296,16 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                         sRingIou = Float.parseFloat(v);
                     } else if ("ai.smartcomp.ring.med".equals(k)) {
                         sRingMed = Integer.parseInt(v);
+                    } else if ("ai.smartcomp.ring.wband".equals(k)) {
+                        sRingWantBand = Float.parseFloat(v);
+                    } else if ("ai.smartcomp.ring.dead".equals(k)) {
+                        sRingDead = Float.parseFloat(v);
+                    } else if ("ai.smartcomp.ring.walpha".equals(k)) {
+                        sRingWantAlpha = Float.parseFloat(v);
+                    } else if ("ai.smartcomp.ring.wrate".equals(k)) {
+                        sRingWantRate = Float.parseFloat(v);
+                    } else if ("ai.smartcomp.ring.lock".equals(k)) {
+                        sRingLock = Integer.parseInt(v);
                     } else if ("ai.aiscene".equals(k)) {
                         sAiScene = Integer.parseInt(v);
                     } else if ("diag.watchdog".equals(k)) {
@@ -4068,6 +4445,36 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
             if (sRingMed > 9) {
                 sRingMed = 9;
             }
+            if (sRingWantBand < 0f) {
+                sRingWantBand = 0f;
+            }
+            if (sRingWantBand > 0.6f) {
+                sRingWantBand = 0.6f;
+            }
+            if (sRingDead < 0f) {
+                sRingDead = 0f;
+            }
+            if (sRingDead > 0.3f) {
+                sRingDead = 0.3f;
+            }
+            if (sRingWantAlpha < 0.02f) {
+                sRingWantAlpha = 0.02f;
+            }
+            if (sRingWantAlpha > 1f) {
+                sRingWantAlpha = 1f;
+            }
+            if (sRingWantRate < 0f) {
+                sRingWantRate = 0f;
+            }
+            if (sRingWantRate > 5f) {
+                sRingWantRate = 5f;
+            }
+            if (sRingLock < 0) {
+                sRingLock = 0;
+            }
+            if (sRingLock > 1) {
+                sRingLock = 1;
+            }
             if (sDbgFrag < 0) {
                 sDbgFrag = 0;
             }
@@ -4127,6 +4534,11 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                                     + " ring.probe=" + sRingProbe
                                     + " ring.iou=" + sRingIou
                                     + " ring.med=" + sRingMed
+                                    + " ring.wband=" + sRingWantBand
+                                    + " ring.dead=" + sRingDead
+                                    + " ring.walpha=" + sRingWantAlpha
+                                    + " ring.wrate=" + sRingWantRate
+                                    + " ring.lock=" + sRingLock
                             : "")
                     + " ai.aiscene=" + sAiScene
                     + " diag.stallheal=" + sHeal
