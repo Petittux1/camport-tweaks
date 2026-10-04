@@ -1,15 +1,15 @@
 # camport-tweaks
 
 小米 17 Pro 上跑 **18 Pro Max 相机 APK**（`6.8.001770.0`）的 LSPosed 模块扩展，
-让三个在本机原本不生效的功能落地：
+让五个在本机原本不生效（或不完整）的功能落地：
 
 | 功能 | 状态 |
 |---|---|
 | **传奇一瞬**（M3 / M9 / M10R） | ✅ 预览 + 成片都通 |
 | **实况运镜**（mode 231 自由 / 主角 / 红毯） | ✅ 能用，⚠️ 成片观感不理想（见下） |
 | **AI帮拍**（mode 168 / `0xa8`） | ✅ 不再崩溃（`fd=0` 自 10-02 18:29 起归零），⚠️ 成因未定位 |
-| **智能构图** | ⚠️ 开关显示开但**实际不生效**，且点不掉（`ai.smartcomp` 只是隔离开关） |
-| **调色盘** | ⬜ 未做 |
+| **智能构图** | ✅ 预览引导环 + 连续自动变焦（10-04 合成 `autoCropData` 喂 v2 通路，用户确认可用） |
+| **调色盘** | ✅ 拍照模式所见即所得（10-04 `PaletteFix`，用户确认可用） |
 
 > **本仓库为 Private。** 所有 hook 都是追加在 **XiaomiCamPort** 这个第三方模块之上，
 > 原模块**不是我的**。仓库里**不含**原模块的 `module.apk`、不含相机 APK、不含反编译产物
@@ -35,8 +35,9 @@ legend_src/com/pudding/camport/hooks/
     Mode231Fix.java       实况运镜：闪退修复 + 绿色花屏修复 + 帧探针（live.probe 门控）
     Mode231Probe.java     实况运镜：开相机 id / 流配置探针
     LegendaryColor.java   传奇一瞬：M3/M9/M10R -> CubeLut 滤镜映射
-    SmartCompFix.java     智能构图：ai.smartcomp 隔离开关（+ 可选 submit 钩子）
+    SmartCompFix.java     智能构图：ai.smartcomp 档位门（0..8，8=v2 引导环 + 合成 autoCropData）
     HdrFix.java           AI帮拍：自动HDR互斥阻断 ai.hdrfix
+    PaletteFix.java       调色盘：拍照模式成片所见即所得 palette.*
 build_legend.sh           javac -> d8 -> zip -> apksigner -> pm install -r
 config.example.conf       全部可调键（拷到设备 config.conf 用）
 *.py                      成片分析脚本（下面单独说）
@@ -102,9 +103,18 @@ legend.degree=100       滤镜强度 0-100
 live.probe=231          off=整条探针停掉   231=只采实况运镜（默认，=10-01 原始行为）
                         all=按尺寸白名单全采 ★AI帮拍/拍照/2亿 与 231 尺寸撞车，会误命中
 
-# ---- 智能构图（隔离用，见「还没解决」）----
-ai.smartcomp=1          0=完全不 hook 智能构图   1=启用下面的钩子
-ai.smartcomp.submit=0   0=只打日志   1=真的调 A3.g.w() 提交构图
+# ---- 智能构图（v2 引导环，见 config.example.conf 的逐键说明）----
+ai.smartcomp=8          0=不干预   8=★抬四道门 + 合成 autoCropData 喂 v2 引导环
+                        1..7 是历史 A/B 档位，日常不用
+ai.smartcomp.ring=1     1=合成 float[6] 喂引导环（0=对照组）
+ai.smartcomp.ring.x=0.30   兜底矩形，★必须居中：x=0.5-w/2, y=0.5-h/2
+ai.smartcomp.ring.y=0.32   否则没主体时引导环永远提示「向下移动手机」
+ai.smartcomp.ring.src=0    0=人脸→触摸对焦→上一帧→兜底  3=只用兜底矩形
+ai.smartcomp.ring.autozoom=1  1=连续自动变焦（按 ring.fill 反算目标倍率）
+
+# ---- 调色盘（拍照模式成片所见即所得）----
+palette.force=1         palette.inject=1        palette.dup=1
+palette.probe=1         palette.withfilter=1
 
 # ---- AI帮拍 / 自动HDR 互斥 ----
 ai.hdrfix=1             1=进入 AI帮拍 时阻断「自动HDR」互斥抢模式
@@ -230,21 +240,80 @@ f40->f45  k=1.050 (0.121)                 指令 1.039
 > `build.DEVICE=madrid`、`block.msg=11`、`pixel.fix`、`cvtype.natural`、`enable_mode`
 > 都是**原模块预设**，不是本仓库的 delta。
 
-### 5. 还没解决
+### 5. 智能构图：✅ 10-04 已修好（走 v2，端侧合成数据）
 
-- **智能构图不生效**：开关显示开、`ai.smartcomp=1` 也在打日志，但实际画面没有构图裁剪。
-  想做「真裁剪」已经走不通 —— `com.xiaomi.camera.autoCrop.*` 的 vendor tag 在 HAL 里**全缺**。
-  目前卡在「构图引擎没喂数据」：`CompositionList` 拿不到，
-  而 `SmartCompositionSimpleASD` 的 verbose 日志在 logcat 里看不到。
-- **智能构图开关点不掉**：点了解除不了，一直显示开（小问题）。
-- `dex/classes6.dex`（2.25MB，含 `updateCompositionUI`）还没反编译。
+**做法**：`ai.smartcomp=8` 抬 `U3/t0/S0/R` 四道门让相机自己走原生 `reInit` 打开 v2 通路
+（不强抬 `F.d0` → PIP 样张框不注册，用户要的回退），再在
+`s6.s0.consumeResultOnMainThreadIfDataChanged` 前**合成 `com.xiaomi.camera.autoCrop.autoCropData = float[6]`**：
+`[0..3]` = 取景框 x/y/w/h（w/h 是偏移量）、`[4]` = 目标倍率、`[5]` = CompositionDataType。
+框来自**人脸 → 触摸对焦区 → 上一帧（800ms）→ 兜底矩形**，经 `SCALER_CROP_REGION` 换算到 preview
+坐标；变焦按「主体应占画面宽度 `ring.fill`」反算，走 `R6.C0.W4()` 官方
+`startZoomRatioAnimator` 通路连续推进（用户手动动变焦则冷却 1.5s 不抢）。
+
+**踩过的坑**：兜底矩形必须**居中**（`x=0.5-w/2, y=0.5-h/2`）。`mTargetAreaRect` 恒等于
+displayRect 正中心，`mFocusAreaRect` 是我们合成的框；两者不重合 → 引导环画箭头 + 方向提示，
+旧默认 `x=0.40,y=0.30` 把兜底框放到屏幕中心下方 ~162px → 没主体时**永远提示「向下移动手机」**。
+
+<details><summary>历史：10-02 的诊断（两代实现 + 8 道门）</summary>
+
+**核心事实：相机里其实有两代智能构图，`CaptureModule.appendInterceptor` 靠 `V3`/`U3` 二选一。**
+
+```java
+if (!V3) { if (U3) add(v2 拦截器 s6.s0); return; }   // v2 = autoCrop 代
+add(v1 拦截器 s6.r0 = SmartCompositionSimpleASD);      // v1 = ASD 代
+// updateSmartComposition():  if (!U3) { if (V3) v1分支; return; } else v2分支
+```
+
+| | v1（ASD 代） | v2（autoCrop 代） |
+|---|---|---|
+| 数据源 tag | `xiaomi.ai.misd.SemanticScene` | `com.xiaomi.camera.autoCrop.autoCropData` |
+| 进入条件 | `V3=true` | `V3=false && U3=true` |
+| 本机 HAL 有没有该 tag | ❌ 0 命中 | ❌ 0 命中 |
+| 10-02 实测 | **0 次**（从没走到过） | **99 次**，首条 `13:52:11.516` = `ai.smartcomp=3` 生效那刻，**之前 0 次** |
+
+**于是最反直觉的一条：`ai.smartcomp ≥ 1` 抬 `U3`，等于主动把相机推进 v2 那条死路。**
+
+**8 道门清单**（每条都带日志或系统侧证据）：
+
+| 门 | tag | HAL | 日志证据 | 我们抬了吗 |
+|---|---|---|---|---|
+| ① `h.U3` 能力门 | `autoCrop.autoCropVersion` | ❌ | `SupportSmartCompositionVersion:null` ×1122 | ✅ level≥1 |
+| ② `h.t0` 比例门 | `autoCrop.autoCropSupportSize` | ❌ | `SupportSmartCompositionSize:null` ×47 → 默认 4x3 | ✅ level≥2 |
+| ③ `g.S0` 下发门 | `autoCrop.autoCropEnable` | ❌ | `isTagDefined:false` 818/883（65 次 true **全在 13:52–14:12** = 我们 level3 窗口） | ✅ level=3 |
+| ④ `o0.N0()` 状态下发 | `autoCrop.autoCropState` | ❌ | `Not Supported SmartComposition State` **257/257** | ❌ |
+| ⑤ **v2 数据源** | `autoCrop.autoCropData` | ❌ | `composition data: Exception!` **696/696** | ❌ |
+| ⑥ **`h.V3` 分叉门** | `supportedfeatures.asd.aiComposition` | ❌ | — | ❌ ← **level=5 只抬这道** |
+| ⑦ **v1 数据源** | `xiaomi.ai.misd.SemanticScene` | ❌ | — | — |
+| ⑧ `F.d0` 模式门 | 硬编码 `i9 == 163` | — | — | ❌（AI帮拍=168 进不去） |
+
+系统侧证据（**带对照实验，证明搜索方法可靠**）：
+- chi override 注册 **31 个 `com.xiaomi.*` 节，没有 `autoCrop`**
+- `autoCrop.*` 四个 tag、`asd.aiComposition`、`xiaomi.ai.misd.SemanticScene` 全系统字面量 **0 命中**
+- 对照：同一节 `xiaomi.ai.misd` 下确实存在的 `NonSemanticScene` **7 处命中** ✅
+
+构图引擎侧的空转（10-02 全天）：`updateSmartCompositionFromASD` **0 次**、
+`updateCurrentSmartCompositonIndex` **0 次**、`updateCompositionUI isValidData` **0 次**（`false` 696 次）。
+而 `updateSmartCompositionCropState` 在 **21:21–21:40（当前构建）出现 48 次** —— 说明
+门① 是开着的（`f17374a=true`），开关和状态都在动，**只是数据永远是空的**。
+
+**当时的动作**：`ai.smartcomp=5` = 只抬 `V3`、`U3/t0/S0/R` 一个不碰 → 强行走 v1，
+并挂 v1 通路探针（`F.d0` / `r0.initAndGetPriorCondition` / `r0.getInTimeCondition` /
+`r0.acceptResult`）。**必须在拍照模式(163)测**，AI帮拍(168) 被 `F.d0` 的 `i9==163` 挡住。
+
+> 仍未被实验否掉的路：① v1 实测；② 内置 debug 后门 `debug_composition_enable` /
+> `debug_composition_index`；③ 把 `C0.v0` 重定向到已存在的 `NonSemanticScene`（解析格式可能对不上）；
+> ④ 完全绕开 HAL 做软件裁剪。
+</details>
+
+### 6. 还没解决
+
 - `Logical CameraId = 15 is invalid` / `Out of bound camera 15`
 - 快门后 ~1.63s 的**成片时长硬上限**，两轮都没突破（`maxImage=8→60` 也无效）
 - 成片**前 0.5s 仍是静止画面**（这段内容本来就拍在快门之前，改动画时长救不了；
   要解决得把成片的时间窗整体后移，即动 ring 的 head / PTS 偏移）
 - 红毯运镜「拍不出来」：`_231_4 takes 3122 ms` 无成图、该窗口 2_5 零帧，
   日志有 `isBlockSnap: master live is in zoom after reset`
-- 调色盘、传奇真算法（`MadridLegendary`）移植
+- 传奇真算法（`MadridLegendary`）移植
 
 ---
 
