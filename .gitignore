@@ -25,3 +25,7 @@
 *.keystore
 *.jks
 *.idsig
+
+# ---- KSU 模块（camzoom）源码 ----
+!ksu-module
+!ksu-module/**

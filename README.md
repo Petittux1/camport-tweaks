@@ -366,6 +366,49 @@ python3 wscan.py <gray文件> <宽> <高> <k下限> <k上限>
 
 ---
 
+## 非线性换镜变焦（10-05，双模块发布）
+
+同时用两个模块落地，**缺一不可**：
+
+| 模块 | 载体 | 作用层 |
+|---|---|---|
+| **LSPosed 模块**（`legendfix.apk`） | LSPosed，作用域 `com.android.camera` | app 层：配置自愈、按倍率分段放行换镜、变焦路径探针 |
+| **KSU 模块**（`camzoom`，源码 `ksu-module/`） | KernelSU 刷入 | HAL 层：bind 挂载 3 个 `/odm/etc/camera` 配置到 init ns |
+
+KSU 模块挂载（`post-fs-data.sh`，均 `mount --bind` 到 pid1 ns）：
+
+```
+files/satsettings.json         -> /odm/etc/camera/xiaomi/satsettings.json
+files/miZA_params.json         -> /odm/etc/camera/miZA_params.json
+files/camxoverridesettings.txt -> /odm/etc/camera/camxoverridesettings.txt   # 缺它会 CHI 配流失败闪退
+```
+
+### 结果
+- `0.7 ↔ 1` 切换**模糊消失**；
+- `2.6 ↔ 5` 视差跳动减轻，且**焦距差异消失**（前景不再窜位）；
+- 配置被 app 覆盖后能**自愈**（`ConfigSelfHeal` 只补缺失键，不再强制改写用户改过的键）。
+
+### 根因定案
+1. **模糊**：`isCameraSwitchingDuringZoomingAllowed() false→true` 与 `telefix v6.f.q() -1→4`。二者独立，处置是 `legend.lensswitch=1` + `legend.telefix=0` + `legend.lensswitch_minzoom=1.5`（≥1.5 才放行，低倍不干预）。
+2. **预览不顺、不像非线性**：18PM 的 `smoothZoomV2`（`defaultZoomInCurve` / `495ms` 等）**在本机固件里根本没有代码** —— 全系统 `*.so` 与相机 APK 全文检索零命中，**改配置永远开不出来**。18PM 的顺滑来自它 HAL 独有能力，不能靠抄配置获得。
+3. **18PM 的配置不能整包照抄**：把 `bezierCurve=0.6:1.0:0.8:1.0` 搬过来反而造成 app 缓动与 HAL 缓动错配 → 出现「焦距差异」。**删掉该键、让 HAL 走默认曲线后差异消失**（键缺失 ≠ 设为线性，两者完全不同）。
+4. **「想跑快但卡」是热降频**：CPU `scaling_max_freq` 被压到 1.1 GHz（上限 4.6 GHz）、核心 83°C。降温后不卡。抓日志时务必 `persist.vendor.sat.debug.log=0`，否则每帧打印同样会烤机。
+
+### config.conf 开关（LSPosed）
+
+```
+legend.lensswitch=1             # 换镜放行总开关
+legend.lensswitch_minzoom=1.5   # 只在倍率 ≥ 此值时放行（治低倍模糊）
+legend.telefix=0                # 长焦修复保持关闭，与 lensswitch 叠加会模糊半秒
+legend.zoompath=0               # 变焦路径探针（排障用，常开有开销）
+legend.zoomdur_ms=0             # 强制 app 变焦动画时长(ms)，0=不干预
+```
+
+⚠ 实测：`zoomdur_ms` 只驱动 app 侧 ramp（100ms→1 帧跳完、800ms→776ms，可客观复现），
+但**肉眼几乎无感**；2000ms 会让下面的小数字跟不上画面。**默认保持 0。**
+
+---
+
 ## 致谢 / 归属
 
 - **[XiaomiCamPort]** —— 原 LSPosed 模块，本仓库的所有 hook 都是追加在它之上。

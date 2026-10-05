@@ -1,0 +1,6 @@
+id=camzoom
+name=CamZoom Smooth - SAT 非线性变焦
+version=v1.0
+versionCode=10
+author=pudding
+description=让 SAT 点按变焦恒走 bezier 非线性动画（不再按距离退回线性），并开启 IQAT 切镜融合，消除换镜头时的模糊/硬切。改 /odm/etc/camera/xiaomi/satsettings.json 与 /odm/etc/camera/miZA_params.json，卸载即恢复出厂。

@@ -1,0 +1,27 @@
+{
+  "//": "Calib parameters",
+  "StructV": {
+    "paramA": "q200",
+    "paramB": 0
+  },
+
+  "SetRatio": {
+    "uw2w": 1.0,
+    "w2t": 5.0,
+    "t2ut": 1500.0,
+    "gamma_zo": 5,
+    "gamma_nzo": 7,
+    "frame_num_fbo": 20,
+    "frame_num_fbi": 10,
+    "frame_num_zoomout": 10,
+    "frame_num_zoomin": 20,
+    "frame_num_centre_zoomin": 10,
+    "frame_num_centre_fallbackout": 6,
+    "gamma_center_blur": 7,
+    "win_size": 130,
+    "flag_fbo": 1,
+    "flag_zoomin": 1,
+    "total_num": 20,
+    "flag_iqat": 1
+  }
+}

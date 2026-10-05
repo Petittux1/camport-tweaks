@@ -1,0 +1,775 @@
+# xiaomi pandora setting file
+multiCameraLogicalXMLFile=pandora.xml
+
+# AF settings
+disablePDAF=FALSE
+pdafHWEnable=FALSE
+EnableAsynPD=1
+enableSensorSecondPD=TRUE
+disableFocusIndication=TRUE
+
+# EEPROM settings
+enableEEPROMBackup=TRUE
+
+# Camera Log
+logInfoMask=0x1000E050081
+chiLogInfoMask=0xF03FFF
+chiNodeLogInfoMask=0x40000000000
+logConfigMask=0x201009A
+enableTxtLogging=1
+enableXiaomiBinLogging=0
+enableBinaryConfigLogging=0
+xiaomiBinLogNumber=10
+offlineLogNumber=15
+xiaomiBinConfigLogNumber=5
+BinaryConfigFileSize=10
+offlineLoggerEnableBackupLog=FALSE
+raiserecoverysigabrt=TRUE
+SDK_LOG_LEVEL=4
+
+# CHI and CAMX Trace Config
+chiLogTraceMask=0x3FFF
+traceGroupsEnable=0x10000000000104C2
+enableDRQTrace=FALSE
+
+# NCS settings
+enableNCSService=TRUE
+isTofIntfTypeQSEE2=TRUE
+enableTOFInterface=TRUE
+MultiflickersEnable=TRUE
+tofModeSupported=1
+enableApoisQSEE2=TRUE
+enableAONUsecase=TRUE
+enableOISExposureSyncMode=TRUE
+isActuatorNCSServiceEnable=TRUE
+enableALSLightSensor=TRUE
+enableStatsNCSOIS=TRUE
+backFlickerGain=16
+backAuxFlickerGain=16
+frontFlickerGain=16
+enableStatsNCSAPOIS=TRUE
+enableQuadAxisOis=FALSE
+ncsPoorAccAdj=TRUE
+#enable apois parklens
+enableApoisParklens=TRUE
+powerSaveCodeForOis=100|4000|100|4000|1
+ncsFftTofFilter=TRUE
+ncsFftScreenFilter=TRUE
+ignoreSensorSubModuleFail=TRUE
+
+# Enable APOIS zoom mode
+OISZoomModeSwitch=TRUE
+
+# Enable sensor Hw sync triger OIS sync mode
+enableOISHwSyncMode=TRUE
+# OIS Sync
+enableOISModeByFocus=TRUE
+enableOISOptimization=TRUE
+# OIS Sync by sensor, bit[0] = wide, bit[1] = front, bit[2] = ultra, bit[3] = tele
+oisSyncModeVideo=0x0
+oisSyncModePhoto=0x9
+#bit0:disable bit1:actuaor bit2:ois bit3:CameraDrop
+shakingOptimization=7
+triggerSyncoffDistance=0.7
+
+#MotorVibrationListener
+enableMotorVibrationListener=TRUE
+
+# Enable leica style custom_awb2 trigger for tuning
+isLeicaTriggerNeeded=TRUE
+
+#wide Sharpness x 0.4 | ultra Sharpness x 0.4 | tele Sharpness 0.2
+SharpnessCompensateRatio=0@0.4|2@0.4|3@0.2
+
+#wide Lce x 0 | ultra Lce x 0 | tele Lce 0
+ltmLceStrengthWeightRatio=0@0.01|2@0.01|3@0.01
+
+# Pipeline No Flush
+enableMCXPipelineFlushMask=0x0
+
+# HalBufferManager
+halBufferCacheMax=8
+
+#8 bit: SDSR enable
+#8 bit: zoomratio threshold value
+#8 bit: SDSR force on(1(yes) 0(no))
+#1 bit: SDSR and flash are mutually exclusive
+#7 bit: reserved
+#1 0000 0001 0001 0100 0000 0001(16847873):left->right:mutuallyExclusiveWithFlash=1,sdsrForceOn=1,zoomRatio=20,enable=1;
+isstableDiffusionSRSupported=16847873
+
+# Super Night
+# https://xiaomi.f.mioffice.cn/wiki/wikk4CsSPAgL2aGtNzyjT5asGAf?sheet=NHmsOS
+MIVISuperNightSupportMask=0x3C1F373F
+#wide:251 uw:290 tele: 285 front:285
+SupernightSEManualEVMask=0x0400FBF1
+SupernightManualEVMask=0x0400FBF1
+SupernightSEManualEVMaskForTele=0x04011DF1
+SupernightManualEVMaskForTele=0x04011DF1
+SupernightSEManualEVMaskForUW=0x040122F1`
+SupernightManualEVMaskForUW=0x040122F1
+SupernightSEManualEVMaskForFront=0x020122F1
+SupernightManualEVMaskForFront=0x020122F1
+SupernightManualEVMaskForBokehFront=0x020122F1
+#SupernightExpAdjustInfo=0:310:40:0.5|310:380:40:0.75|380:440:40:0.5
+EnableLowFpsForSATnNight=TRUE
+
+# UIRelatedMetas
+UIRelatedMetas=xiaomi.supernight.checker|xiaomi.ai.asd.DepthExtend|xiaomi.ai.misd.NonSemanticScene|xiaomi.ai.asd.asdExifInfo|xiaomi.ai.asd.SmartAE
+
+# enable DepthExtend
+isdepthExpandSupported=1
+
+
+#enable smart scene
+smartSceneFeature=1
+
+# smart Scene Threshold 5--720P,6--1080P,8--4K,
+smartSceneThreshold=5@30|5@60|6@24|6@30|6@60|7@30|7@60|8@24|8@30|8@60
+
+# Define which smartcard will set the 'enableLofic' tag to force lofic sensor mode.
+# Here control resolution and fps, APP will control specific card itself.
+#  PATTERN: resolution@fps|resolution@fps|...
+#  resolution: 5=720P, 6=1080P, 7=2.8K, 8=4K, 3001=8K,
+smartSceneCardForceLofic=6@60|7@60|8@60
+
+
+#SAT
+satSensorPolicyMask=17
+enablePostZoomFOV=1
+isPhyicalMultiCameraSupported=TRUE
+multiCameraEnable=TRUE
+enableMFLOEMCustomization=TRUE
+maxDigitalZoom=120.0
+SATWrapperType=2
+enableEarlyPipelineActivate=TRUE
+isSatNearRangeSupported=TRUE
+enableSatZoomingButton=TRUE
+enableInSensorZoomForOnlyPhysicalStream=TRUE
+enableOverrideOFEOutputROI=0x3
+validateOverrideOFEOutputROIUsingOEMConfig=0x1
+#fallbackSwitchMask: 0-no fallback, 1-W2UW, 2-T2W, 4-UT2W.
+satFallbackSwitch=3
+
+#disable FD full dimension, 4k fd 1920x1080 -> 640x360
+enableFDFullStreamDimension=FALSE
+
+# SAT zoom animation params
+isSwitchAnimationSupported=TRUE
+minDigitalZoomVideo=0.7
+maxDigitalZoomVideo=15.0
+secondScreenZoomRange=0.7:5.0
+satZoomButton=0.7:1:2:5:10:30:60:120|0.7:1:2:5:10:15
+satZoomTime=950|590|2000|1000
+satFastZoomThreshold=3000|2000|300
+
+#xiaoaiScanner
+maxXiaoaiScanner=20.0
+
+#720P@30 0x01 1080P@30 0x02 1080P@60 0x04 4K@30 0x08 4K@24 0x80
+videoSATSupportedRange=0x8F9F
+disableSatFusion=1
+enablePreviewFusion=TRUE
+enableSATBokeh=0
+satStreetFeatureMask=0x5F
+
+# Bokeh
+dualBokehPreview=FALSE
+
+#InSensorZoom
+enableInSensorZoom=TRUE
+enableSnapshotOnlyInSensorZoom=FALSE
+enableMFLSensorModeSelection=TRUE
+enableSensorBitSwitch=TRUE
+extendISZRangMax=19.9999
+enableSensorRemosaic=1
+enableQPDR=TRUE
+EnableMultiPassISPRemosaic=FALSE
+#Preview 0x01 ThirdParty 0x02 Document 0x04 LeicaMoment 0x08 Video 0x10
+ISZSupportedCase=0x3F
+
+# SAT PIP
+isSatPipSupported=TRUE
+# PIP role id |UW:1|W:2|T:3|UT:4|
+satPipCameraRoleId=3
+satPipZoomRatioStarted=20.0
+satPipOFECropFactor=0:0|408:306|2048:1536|0:0
+
+# Flush time
+nodeResponseTime=200
+sessionResponseTimePadding=500
+sessionMaxFlushWaitTime=1000
+
+# Setting the minimum frame rate for auxiliary session
+minAuxFPS=10
+# Enable SAT Wide always on VBI mode
+enableSATWideAlwaysOn=TRUE
+enableAuxAFAssist=TRUE
+
+#Enable Multi Level Insensor zoom
+enableMultiLevelInSensorZoom=TRUE
+
+#videonight,720 = 5, 1080 = 6, 4K = 8, 8K = 3001
+VideoNightConfigurations=6@24|8@24
+enableDCG14bitOfflinePreview=TRUE
+DisableSHDRWithOfflineEV=1
+# Enable Mutil Level ISZ for videonight
+#  0: auto  1: ForceDisableAinr   2: ForceEnableAinr
+enableMultiLevelISZInVideonight=1
+
+#Auto Moon
+isAutoMoonSupported=true
+
+#Ultra Raw
+isUltraRawSupported=true
+#HD Raw
+isHdRawSupported=true
+#UltraRawFeatureMask
+#Bit[0]       - support adjust exposureTime and ISO
+#Bit[1]       - support app get buffer from mihal
+#Bit[2]       - support Leica Classic
+#Bit[4]-[7]   - UltraRaw support Frames
+#Bit[8]-[11]  - 50M UltraRaw support Frames
+#Bit[12]      - not support 50M UltraRaw
+UltraRawFeatureMask=0x1347
+
+# portrait repair
+#Bit[0] - UI SAT support default not support
+#Bit[1] - algo SAT support default on
+#Bit[2] - UI Bokeh support default not support
+#Bit[3] - algo Bokeh support default on
+#Bit[4] - UI SuperNight support default not support
+#Bit[5] - algo SuperNight support default on
+isPortraitRepairSupportMask=0x26
+
+# 12G portrait repair
+#Bit[0] - UI SAT support default not support
+#Bit[1] - algo SAT support default on
+#Bit[2] - UI Bokeh support default not support
+#Bit[3] - algo Bokeh support default on
+#Bit[4] - UI SuperNight support default not support
+#Bit[5] - algo SuperNight support default on
+isLargeRamPortraitRepairSupportMask=0x2a
+
+#Manual Video Log Mode
+#which Camera Supported
+#Bit[0]       - Wide
+#Bit[1]       - Front
+#Bit[2]       - Ultra wide
+#Bit[3]       - Tele
+#Bit[4]       - Ultra Tele
+isVideoLogformatSupported=0x15
+#support 10bit
+isVideoLogBitformatSupported=10
+#videologformat,720 = 5, 1080 = 6, 4K = 8, 8K = 3001
+videologformatConfigurations=8@30|8@60
+#enableLogformatAndMimoveForEncodec, fasle: encodec 10bit,ture:encodec 8bit
+isVideoLogformatForEncodecSupported=FALSE
+
+# Enable PixelStatsNode
+enablePixelStatsNode=TRUE
+
+# For CTS Reprocess Size
+minReprocessInputWidth=0x1FFF
+minReprocessInputHeight=0x1FFF
+
+# DRV
+enableDRV=FALSE
+
+# EHDR
+supportHDRPreviewFusion=TRUE
+HDRFusionForceEnable=FALSE
+EnableLBMFPDSwap=0
+
+# Sensor mode pick
+VideoSizeOpMode=8004|8033|8019|8032|8034|f010|8024|8031
+xiaomiMaxRAWSizes=10
+
+#override Flash Current
+overrideFlashTorchCurrent=130
+overrideFlashVideoLightCurrent=130
+overrideFlashPreviewLightCurrent=130
+overrideFlashSnapshotLightCurrent=450
+overrideTorchScanCurrent=150
+FlashTorchCurrentSwitch=TRUE
+FlashTorchTemperatureLevels=1@20|2@30
+overrideFlashSnapshotLightDuration=4000
+
+# Video dataspace=BT709
+overrideVideoDataspace=3
+
+#skinbeauty
+isBeautyVersion=71
+isGLBeautyVersion=71
+enableEGLCache=TRUE
+isBeautyOptionConfigSupported=1
+isBeautyRemoveNevusSupported=1
+isAIBeautySupported=1
+
+#enable copy rif_record_file.txt to aftersales path
+enableDumpRfiRecordToAftersalelog=TRUE
+
+#fusion enable
+#1: wide + tele
+#2: wide + ultra...
+isfusionSupported=1
+
+#enable notify DFX to aftersale and skynet
+enableNotifyDFX2AftersaleAndSkynet=TRUE
+
+#Fill in hall false data threshold
+oisHallErrorThreshold=5
+
+#Video Filter & Bokeh & Beauty
+isFrontVideoBokehSupported=TRUE
+isVideoBokehSupported=TRUE
+isVideoFilterSupported=TRUE
+superVideoFilterVersion=1
+isVideoBeautifierSupported=TRUE
+isVideoBeautyEISSupported=TRUE
+isVideoBeautyScreenshotSupported=TRUE
+
+# Enable OEM Dolby
+enableDolbyVisionHDR=TRUE
+
+# enable AICamera
+enableAI=1
+overrideAIStrengthControlFactor=2
+enableBackPropagateLowerAISegCatMap=0
+enableLowLightAISeg=1
+aiSegNWLowPowerMode=0x2
+enableAISegOnly=0
+enableAIVRSSkip=0
+
+#For 3rdEISV2
+is3rdEISV2Enabled=TRUE
+
+#HwBinary
+enableHwBinary=TRUE
+
+#Enable GPU rotate
+enableGPURotation=TRUE
+
+#Dynamic Fps Support
+is30fpsDynamicSupported=TRUE
+is60fpsDynamicSupported=TRUE
+dynamicFpsSupported=0@30|0@60|1@30|1@60|2@30|2@60|3@30|4@30|5@30|5@60
+
+# MI3A
+MIAEClibName=com.xiaomi.stats.aec.so
+MIAFlibName=com.xiaomi.stats.af.so
+MIPDLibName=com.xiaomi.stats.pdlib.so
+MIAWBlibName=com.xiaomi.stats.awb.so
+
+#Enable APP gamma thresholds
+thresholds=4.0|0.99|0.01|0.99|0.01|1|0|0.99|0.01
+
+enableBackFlicker=TRUE
+enableFrontFlicker=TRUE
+# Front Spectral Sensor: TCS3720
+MiFrontSpectralSensorName=ColorSensor
+
+#video exif
+#8 bit: video exif enable
+#24 bit: frame number that app need cache (Maximum number of frames can be recorded, new frame override the oldest)
+#0000 0000 0010 1010 0011 0000 0000 0001(002A3001):left->right: frame number:10800, enable=1
+#0000 0000 0010 1010 0011 0000 0000 0000(002A3000):left->right: frame number:10800, enable=0
+#0000 0000 0000 0000 0110 0100 0000 0001(00006401):left->right: frame number:  100, enable=1
+enableVideoExif=0x6401
+EnableWideFixedMaster=TRUE
+#parkLens & powerSaving
+xiaomiAFParklensAsync=TRUE
+xiaomiAFParklensSync=TRUE
+ActuatorPowersavingThreadTime=5000
+OISPowersavingThreadTime=3000
+xiaomiOISParklensAsync=TRUE
+
+#early init wide module
+isEarlysettingsEnable=TRUE
+isActuatorEarlyInitEnable=TRUE
+isOisEarlyInitEnable=TRUE
+
+# Enable 3A and metadata
+enable3ADebugData=FALSE
+enable3ADebugDataCustomFilter=TRUE
+enablePostCustomized3ADebugData=TRUE
+#Adapt offline awb exif
+debugDataSizeAEC=1200000
+debugDataSizeAWB=500000
+customConciseDebugDataSizeAWB=250000
+customConciseDebugDataSizeAEC=110000
+
+enableXiaomiMLAWBSnapshot=0
+
+# Concert ShortenExp Config
+AEConcertShortenExpRatio=400,2.0|480,1.8|560,1.5|5000,1.2
+AEConcertShortenExpGainThreshold=0,32|4,128
+
+# Enable earlyPCR
+numPCRsBeforeStreamOn=1
+is3rdPCREnabled=TRUE
+
+#HLG:100  HDR10:010  HDR10+:001  HLG|HDR10:110  HLG|HDR10+:101
+VideoHdrAvailableConfigurations=100:1080P@30|100:1080P@60|100:4K@24|100:4K@30|100:4K@60
+VideoHdrAvailableConfigurationsForFontCamera=100:1080P@30|100:1080P@60|100:4K@30
+
+#bit[3]=liveshot bit[2]=PreviewEffect  bit[1]=SAT  bit[0]=VideoHDR
+allLensDolbySupport=TRUE;
+allLensDolbyConfig=15:1080P@30|15:1080P@60|15:4K@24|15:4K@30|15:4K@60
+
+#Enable Touch to Track feature
+XiaomiTrackAFSupportedMask=3
+#Use the new coordinate system
+XiaomiTrackAFUseNewCoordinate=TRUE
+#Res1@FPS1|Res2@FPS2 ...,5--720P,6--1080P,8--4K
+XiaomiVideoTrackAFQuality=5@30|6@30|8@30
+
+#available front video max resolutions
+isFront4K60fpsSupport=TRUE
+availableFrontMaxResolutions=5@30|6@30|6@60|8@30|8@60
+#enablemimovie
+isVideoMimovieSupported=TRUE
+
+#enable aihighlight
+enableAIHighLight=FALSE
+
+#enable flicker freq switch
+enableFlickerFreqSwitch=FALSE
+
+# For XTS
+disable3PartLowLight=TRUE
+
+#Enable motion capture
+#   bit[0]: 1 means it supports motion capture in capture mode.
+#           0 means not.
+#   bit[1]: 1 means it supports dedicated denoise algo under
+#             motion capture & capture mode.
+#           0 means not.
+#   bit[2]: 1 means it supports HDR under
+#             motion capture & capture mode.
+#           0 means not.
+#   bit[3]: 1 means replace SR with MFNR
+#           0 means not.
+#   bit[4]: 1 means it supports motion-burst-capture
+#           0 means not.
+#   bit[8]: 1 means it supports motion capture in portrait mode.
+#           0 means not.
+#   bit[9]: 1 means it supports dedicated denoise algo under
+#             motion capture & portrait mode.
+#           0 means not.
+#   bit[10]: 1 means it supports HDR under
+#             motion capture & portrait mode.
+#           0 means not.
+#   bit[11:12]: default on behavior bits
+#           b'00 means off by default.
+#           b'01 means it's enabled by default in non-banding env.
+#                User enables it manually in banding env via UI.
+#           b'10 means it's enabled by default in all env.
+#                User disables it manually in banding env via UI.
+#           b'11 reserve
+#   bit[13:31]: reserve
+enableMotionCapture=0x1919
+
+#Enable Bird Motion capture
+isEnableBirdMotionCapture=true
+
+motionEffectThresholds=30|30|40|30
+motionLuxThresholds=440|540|440|440
+motionEffectDiffSupport=1
+
+# 高通:运动抓拍支持强开的zoom范围，具体数值/10为真实zoom(保证小数场景)
+# 7 ~ 0  : min 支持强开的zoom的最小值
+# 23 ~ 8 : max 支持强开zoom的最大值
+# 24     : enable 占位
+# 31~25  : reserved预留，为了今后的互斥扩展
+snscForceUILimited=0x0100640a
+
+# MIGME Enable
+MIGMESupport=TRUE
+
+# EIS
+#Res1@FPS1|Res2@FPS2 ...,5--720P,6--1080P,8--4K,3001--8K
+vsquality=5@30|6@30|6@60|8@30|8@60|3001@24
+enableVIULLProcessing=TRUE
+isLivePhotoEISSupported=1
+livePhotoEISCropFactor=0.9
+iseispreviewSupported=TRUE
+isMiMotionSupported=TRUE
+
+# Preview EIS
+isPreviewZoomEISSupported=1
+isZoomEISPipSupported=1
+
+#Enable Preview when PZSL snapshot
+enablePreviewOutputWithPZSL=TRUE
+
+#which Camera Supported SlowMotion
+#Bit[0]       - Wide
+#Bit[1]       - Front
+#Bit[2]       - Ultra wide
+#Bit[3]       - Tele 3x
+#Bit[4]       - Tele 5x
+whichCamSupportedSlowMotion=0x17
+
+#enable MSPC Algo
+enableMiPurecolor=TRUE
+
+#SOT
+enableSOT=TRUE
+enableQSEG3A=TRUE
+enableTouchToTrack=FALSE
+overrideSkinVegAdvDetection=3
+enableQSEG3ACatmapDump=FALSE
+enableSOTDumpInSnapshot=FALSE
+frameLumaStartThresForSOTTempCtrl=0
+frameLumaEndThresForSOTTempCtrl=8
+motionThresForSOTTempCtrl=5.0
+motionVectorThresForSOTTempCtrl=1.0
+motionStartThresForSOTSkipFrameCtrl=0
+motionEndThresForSOTSkipFrameCtrl=0
+
+# 0000 0001 Non-sat SuperEIS
+# 0000 0010 sat SuperEIS
+videoSuperEisSupportFeature=0x1
+#Video SuperEis Support Caps -- 1:REAR, 2:FRONT, 3:REAR_AUX, 4:FRONT_AUX; 5:720P, 6:1080P, 7:2.8K, 8:4K
+VideoSuperEisQuality=1@6@30|1@7@30|3@6@30|3@7@30
+
+# 0x0001 rear default enable
+# 0x0010 front default enable
+# 0x0100 rear support flash
+# 0x1000 front support flash
+# 0x0001 0000 rear Cancel UI
+VideoHDRSupportFeature=0x10
+
+#Enalbe Auto HDR for MFHDR
+enableAutoHDRCapability=1
+#SHDR =1 ; MFHDR =2
+VideoHDRPreferredMode=1
+VideoHdrEnableSupported=TRUE
+supportVideoLofic=1
+#Lofic supported resolution/FPS: 1:REAR, 2:FRONT, 3:REAR_AUX, 4:FRONT_AUX; 5:720P, 6:1080P, 7:2.8K, 8:4K
+supportVideoLoficQuality=1@5@30|1@6@30|1@8@30|1@6@60|1@8@60
+isDolbyHDREISSupported=TRUE
+#Video HDR Support Caps -- 1:REAR, 2:FRONT, 5:720P, 6:1080P, 8:4K
+VideoHdrConfigurations=1@8@24|1@5@30|1@6@30|1@8@30|2@5@30|2@6@30|2@8@30
+isFrontVHdrSupported=TRUE
+Video8kSupportedOFERemosaic=TRUE
+
+#Stagger HDR capture type
+#0x00000001 means enable NZSL seamless change to 3 stagger for SAT
+#0x00000010 means enable NZSL seamless change to 3 stagger for Single Camera
+#0x00001000 means enable seamless change to 2 stagger preview, ZSL capture
+EnableSeamlessStgCapture=8
+
+#which camera can enable seamless to stagger
+#00000001       - Wide
+#00000010       - Ultra wide
+#00000100       - Tele 3x
+#00001000       - Tele 5x
+#00010000       - Front
+EnableSeamlessStgCam=0x9
+
+#DCGBitWidthInvalid              = 0, ///< DCG invalid bit width
+#DCGBitWidthLong10BitShort10Bit  = 1, ///< DCG long 10 bit + short 10 bit
+#DCGBitWidthLong12BitShort10Bit  = 2, ///< DCG long 12 bit + short 10 bit
+#DCGBitWidthLong12BitShort12Bit  = 3, ///< DCG long 12 bit + short 12 bit
+#DCGBitWidthLong14BitShort10Bit  = 4, ///< DCG long 14 bit + short 10 bit
+#DCGBitWidthLong14BitShort12Bit  = 5, ///< DCG long 14 bit + short 12 bit
+#DCGBitWidthLong14BitShort14Bit  = 6, ///< DCG long 14 bit + short 14 bit
+selectDCGSensorOutputBitWidth=5
+#DCGOff     = 0, ///< DCG mode off
+#DCG1_4     = 1, ///< DCG 1:4 fixed ratio
+#DCG1_8     = 2, ///< DCG 1:8 fixed ratio
+#DCG1_16    = 3, ///< DCG 1:16 fixed ratio
+#DCGDirect  = 4, ///< DCG direct mode
+#DCGPlusVS  = 5, ///< DCG Plus VS mode
+#DCGModeMAX = 6  ///< Indicates last item in the definition
+selectedDCGMode=5
+#0xA3:拍照模式| 0xAE:动态照片|0xE1:街拍模式
+enableDCGPlusVSSwitch=163|225
+
+enableAWBR=FALSE
+enableEarlyCrop=1
+
+#3rd MFNR
+isEnable3rdMFNR=1
+
+#3rd mmf ml
+enableMLfor3rdMMFplus=FALSE
+
+#override 3party IPE height
+overrideMinIPEHeight = 960
+lowResHeightThreshold = 600
+lowResWidthThreshold = 700
+
+#support customimagequality
+isCustomQualitySupported=TRUE
+
+#customimagequality lut config mask
+#Bit[0] - Tone use lut
+#Bit[1] - Saturation use lut
+XiaomiCIQLutConfigMask=0x3
+
+#enableFaceFilter
+enableFDResultsFilter=TRUE
+
+#AWB gamma ratio
+customColortemperatureGainRatio = 1.1658:0.8346|1.1583:0.7424|1.1350:0.7806|1.1749:0.7238|0.8633:1.2862|0.8189:1.4421|0.7849:1.4663|0.8044:1.4977
+customColortuneGainRatio = 1.1212:1.1997|1.1503:1.2415|1.1622:1.2363|1.1784:1.2370|0.8825:0.8658|0.8898:0.8535|0.8819:0.8389|0.9093:0.8199
+
+#enable factory Pdoffset Calibration data
+#Bit[0]       - Wide
+#Bit[1]       - Tele
+#Bit[2]       - Tele4x
+#Bit[3]       - Ultra wide
+#Bit[4]       - Front
+enablePdoffsetCali=0x5
+
+enableFaceAnimationFront=1
+
+#enable crash with crc error
+#we should set enableForceFullRecoveryForCRC=FALSE with the user-release version
+crcErrorDivisor=65535
+enableInternalKMDRecovery=TRUE
+enableForceFullRecoveryForCRC=FALSE
+enableAutoEQ=TRUE
+enableDymicDecreaseRFPower=FALSE
+
+LoadTuningDataManagerAsync=TRUE
+sensorModuleNumber=4
+EnableSensorProbeOptimization=TRUE
+SensorModuleRetryTimes=5
+enableResortSensorData=TRUE
+
+enableDumpSensorI2CInfo=FALSE
+enableDumpKernelBuffer=FALSE
+enableSensorModeValidate=FALSE
+
+#xiaomi3AFeaturesMask
+xiaomi3AFeaturesMask=0x17
+
+# Enable LogVideo Gain remap
+enableLogformatVideoISORemap=TRUE
+
+#close StripingLog
+OFEStripingLogLevel=0x0
+
+#disable FD manager threading
+enableFDManagerThreading=FALSE
+
+# snpe config
+EnableSNPECONFIG=FALSE
+
+#Adjust sharpness according to factory test sfr
+enableModuleSFRAdjustSharpness=FALSE
+moduleSFRAdjustSharpnessRatio=0|0.03:1,0.05:1,0.07:1;1|0.03:1,0.05:1,0.07:1;21|0.03:1,0.05:1,0.07:1;23|0.03:1,0.05:1,0.07:1
+
+# Mivi EIS
+isMiviEisSupport=TRUE
+
+# Enable IPE replace Eva
+enableFDReplaceEVAWithIPE=TRUE
+# enable FD OFE8 node
+#FDFusionPreprocessing=FDPreprocessingDynamicFusion
+
+#AISR
+enableAWBR=FALSE
+enableVIULLProcessing=TRUE
+enableAISR=TRUE
+enableHwBinary=TRUE
+VNAIULLSupport=TRUE
+
+enableLibPrefetch=FALSE
+
+QuickPreviewMask=0x1404
+
+#MIUI ADD: Camera_CamSched
+#      bokeh    FHD60    4K60
+#0000 01        1        1
+enableMiCamSchedCaseMask=0x7
+#END Camera_CamSched
+
+enableLockAF=TRUE
+LockAFCount=3
+InSensorZoomLockAFCount=3
+
+TriggerMinimumFocusShowMinTh = 2
+TriggerMinimumFocusShowMaxTh = 4
+
+DYNAMIC_CPU_TJ_THRESHOLD=10980983
+
+enableBayerTMCStats=TRUE
+
+# Enable Skin Color Detection for CN/GL
+FDEnableAttribute=3
+
+#prealloc
+extraBufferAlloc=2
+
+## Video size custom size, control which size and fps is support in video and video pro.
+## See https://xiaomi.f.mioffice.cn/docx/doxk4JeiEpV81swZo3TWXeuHJtQ
+# Pattern: Sign1@Size1@Fps1|Sign2@Size2@Fps2 ...
+# Sign: 0=real 8K, 1=fake 8K
+# Size: 5=720P, 6=1080P, 8=4K, 3001=8K
+# Fps: 24=24fps, 30=30fps, 60=60fps, 120=120fps
+VideoSizeCustom=0@3001@30|0@8@60
+
+#WA for overflow while zooming
+DisableEarlyPCROnZoomCase=TRUE
+SkipApplyReqForThreePipelienOn=TRUE
+
+#kmd internal recovery settings
+overrideInternalKMDRecoveryMaxAllowed=10
+overrideInternalRecoveryRange=100
+
+HDRSupportedFlashHdr=TRUE
+
+#1 = QSeg3A is enabled in all usecases
+overrideQSEG3A=1
+
+#enable FaceColor
+enableFaceColor=1
+
+# af calibration distance in factory
+afCaliDistanceInFactory=0|2000,10;1|37,15;21|2000,5;23|10000,20
+
+systemCacheSCIDMask=0x21FF
+
+#disable prealloce thresholds
+#CPU_PSI|MEM_PSI|IO_PSI|FREE_THRESHOLD
+DisablePreallocThreshold=99|99|99|1024
+
+# videoDurationMask
+#  << 0    Unlimited recording time of 8K
+#  << 1    Unlimited recording time of 4KHDR10
+#  << 2    Unlimited recording time of 4K60 dolby
+#  << 3    Unlimited recording time of 4K video night
+#  << 4    Unlimited recording time of 4K60
+#  << 5    Unlimited recording time of 4K120
+#  << 6    Disable 4K60 4mic
+videoDurationMask=0x3D
+
+# ITS setting
+sensormodeForMinFps=24|2
+enableXiaomiCalibrationUpdate=TRUE
+cameraIdForCalibration=2|3
+
+
+enableSensorDelayConfig=TRUE
+sensorDelayConfig=1:10
+
+#For stability
+enableSignal35Tombstone=FALSE
+
+enableCancleIPEReq=TRUE
+enableCancleOFEReq=TRUE
+
+# For low light uw zoom fps
+lowLightZoomUWExposureRatio=10
+lowLightZoomUWExposureKeepTime=1
+
+########################################################
+# PPSM Team Controlled
+
+# No modifications are permitted below this section.
+########################################################

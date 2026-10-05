@@ -1,0 +1,334 @@
+/*
+device:goku
+*/
+
+{
+    // IQAT: enable alpha blending on lens switch (matches 18PM)
+    "enableIQAT": true,
+    // SAT fallback settings
+    "SatFallback": {
+        "satFallbackSwitch": 3,
+        "disFbZoomRatio": "1:5.0:5.0:20.0|0:0:5.0:15.1",
+        "luxFbZoomRatio": "1:5.0:5.0:20.0|0:0:5.0:15.1",
+        "satFallbackUT2T": "0:0:9999:9999|0:0:9999:9999",
+        "satFallbackUT2W": "0:0:9999:9999|0:0:9999:9999",
+        "satFallbackT2W": "20:30:560:520|20:30:520:480",
+        "satFallbackW2UW": "10:16:480:530|0:0:9999:9999",
+        "satFallbackDelta": "12:5:0:0:0|12:0:0:0:0"
+    },
+    // InSensorZoom settings
+    "InSensorZoom": {
+        "enableInSensorZoom": true,
+        // Wide: 0x02 Tele3x: 0x04 Tele5x: 0x08
+        "ISZEnableCameraRole": 6,
+        // Zoom support range threshold: Wide , Tele , UltraTele, todo:static meta
+        "ISZThresholdZoomRange": "2.0:19.9999:10.0:120.1:0:0",
+        // Correponding sensor condition threshold: Wide , Tele , UltraTele
+        "ISZThresholdInterval": "1:360:400|1:340:370",
+        // Video correponding sensor condition threshold: Wide , Tele , UltraTele
+        "VideoISZThresholdInterval": "1:360:400|1:340:370",
+        "enableVideoISZ": "0:1:1:0"
+    },
+    // BinningModeWide settings
+    "BinningModeWide": {
+        "wideSHDRModeSwitchThre": "1:305:315:4:5|1:190:230:3:4",
+        "wideDXGModeSwitchThre": "1:368:380:3.8:4.6|1:390:410:2.5:3.5",
+        "wideCMSModeSwitchThre": "0:9999:9999:9999:9999|0:9999:9999:9999:9999",
+        "wideDxgModeExptimeMin": 21332,
+        // Ratio support range DXG: UW, Wide , Tele , UltraTele
+        "DXGModeRatioRange": "0:0|1.0:1.9999|0:0|0:0",
+        // Ratio support range SHDR: UW, Wide , Tele , UltraTele
+        "SHDRModeRatioRange": "0:0|1.0:1.9999|0:0|0:0"
+    },
+    "StarScene": {
+        ///<  Version: 1/ 2
+        "IsSupport": true
+    },
+    "isDisableDXGStreamOnIn60FPS":true,
+    "SATModeSwitch": {
+        ///<  Version: 1/ 2
+        "Version2Support": true
+    },
+    "SensorEnableDXGThreshold": {
+        //lux:adrc:Is support DXG:Is sopprt follow last sensor adrc
+        "CameraRoleUltraWide":"380:3.5:0:1",
+        "CameraRoleWide":"520:3.5:0:1",
+        "CameraRoleTele":"450:3.5:0:1",
+        "CameraRoleTele4X":"500:4.5:0:1"
+    },
+    // UltraWideSwitchModeNum settings
+    // --ModeType: The modeType corresponding to this mode, for specific definitions, refer to the McxSensorModeType enumeration class
+    // --KeepConut: The number of frames that this mode needs to meet the threshold switching condition
+    // --zoomratioMin: The minimum zoom ratio supported by this mode switching rule
+    // --zoomratioMax: The maximum zoom ratio supported by this mode switching rule
+    // --luxindexMin: Defines the minimum luxindex threshold to enter this mode
+    // --luxindexMax: Defines the maximum luxindex threshold for entering this mode
+    // --adrcgainMin: Defines the minimum adrcgain threshold to enter this mode
+    // --adrcgainMax: Defines the maximum adrcgain threshold for entering this mode
+    // -- luxMinRange: Parameter definition of luxindexMin protection interval, actual protection interval  luxindexMin+-  luxMinRange
+    // -- luxMaxRange: Parameter definition of luxindexMax protection interval, actual protection interval  luxindexMax+-  luxMaxRange
+    // -- adrcMinRange: Define the parameter definition of adrcgainMin protection zone, the actual protection zone  adrcMin+-  adrcgainMinRange
+    // -- adrcMaxRange: Define the parameters of adrcgainMax protection interval, actual protection interval  adrcMax+-  adrcgainMaxRange
+    "CameraRoleUltraWideSwitchModelist": {
+        //< captureModeNum | video30FPSModeNum | motionCaptureModeNum | video60FPSModeNum | documentMode | streetPhotographyMode | subCaptureModeNum | subScreenVid30ModeNum | subScreenVid60ModeNum >
+        "SwitchModeNum":"1:3:0:1:1:0:0:0:0"
+    },
+    // UltraWideSwitchModeCapturelist settings
+    "CameraRoleUltraWideCaptureCaselist": {
+        "modeSwitch0":"0:6:0.7:120.0001:0:9999:0:9999:0:0:0:0"
+    },
+    // UltraWideSwitchModeVideo30list settings
+    "CameraRoleUltraWideVideo30FPSCaselist": {
+        "modeSwitch0":"10:6:0.7:15.0001:0:370:3:9999:0:10:0.5:0",
+        "modeSwitch1":"0:6:0.7:15.0001:0:9999:0:3:0:0:0:0.5",
+        "modeSwitch2":"0:6:0.7:15.0001:370:9999:3:9999:10:0:0.5:0"
+    },
+    // UltraWideSwitchModeVideo60list settings
+    "CameraRoleUltraWideVideo60FPSCaselist": {
+        "modeSwitch0":"0:6:0.7:15.0001:0:9999:0:9999:0:0:0:0"
+    },
+    // UltraWideSwitchModeDocumentCaselist settings
+    "CameraRoleUltraWideDocumentCaselist": {
+        "modeSwitch0":"0:6:0.7:5:0:9999:0:9999:0:0:0:0"
+    },
+    // UltraWideSwitchModeStreetPhotographyCaselist settings
+    "CameraRoleUltraWideStreetPhotographyCaselist": {
+    },
+    // WideSwitchModeNum settings
+    "CameraRoleWideSwitchModelist": {
+        //< captureModeNum | video30FPSModeNum | motionCaptureModeNum | video60FPSModeNum | documentMode | streetPhotographyMode | subCaptureModeNum | subScreenVid30ModeNum | subScreenVid60ModeNum >
+        "SwitchModeNum":"10:8:9:7:3:12:0:0:0"
+    },
+    // WideSwitchModeCapturelist settings
+    "CameraRoleWideCaptureCaselist": {
+        "modeSwitch0":"5:6:2:120.0001:0:460:0:4:0:20:0:0",
+        "modeSwitch1":"11:1:1:2:0:440:14.75:9999:0:10:0.75:0",
+        "modeSwitch2":"10:6:1:2:0:515:4:14.75:0:15:0.5:0.75",
+        "modeSwitch3":"10:6:1:2:440:515:14.75:9999:10:15:0.75:0",
+        "modeSwitch4":"10:6:2:120.0001:460:515:4:9999:20:15:0.5:0",
+        "modeSwitch5":"10:6:2:120.0001:0:460:4.5:9999:0:20:0.5:0",
+        "modeSwitch6":"0:6:2:120.0001:460:515:0:4:20:15:0:0.5",
+        "modeSwitch7":"0:6:2:120.0001:515:9999:0:9999:15:0:0:0",
+        "modeSwitch8":"0:6:1:2:0:515:0:4:0:15:0:0.5",
+        "modeSwitch9":"0:6:1:2:515:9999:0:9999:15:0:0:0"
+    },
+    // WideSwitchModeVideo30list settings
+    "CameraRoleWideVideo30FPSCaselist": {
+        "modeSwitch0":"5:6:2:15.0001:0:380:0:3:0:20:0:0.5",
+        "modeSwitch1":"12:6:2:15.0001:0:380:3:9999:0:20:0.5:0",
+        "modeSwitch2":"11:1:1:2:0:9999:14.5:9999:0:0:1:0",
+        "modeSwitch3":"10:6:1:2:0:9999:3:14.5:0:0:0.5:1",
+        "modeSwitch4":"10:6:2:15.0001:0:380:3:9999:0:20:0.5:0",
+        "modeSwitch5":"10:6:2:15.0001:380:9999:3:9999:20:0:0.5:0",
+        "modeSwitch6":"0:6:1:2:0:9999:0:3:0:0:0:0.5",
+        "modeSwitch7":"0:6:2:15.0001:380:9999:0:3:20:0:0:0.5"
+    },
+    // WideSwitchModeMotionCapturelist settings
+    "CameraRoleWideMotionCapturelist": {
+        "modeSwitch0":"5:6:2:10.0001:0:340:1:4:0:10:0:0.5",
+        "modeSwitch1":"8:6:1:2:0:500:1:4:0:10:0:0.5",
+        "modeSwitch2":"8:6:2:10.0001:340:500:1:4:10:15:0:0.5",
+        "modeSwitch3":"11:1:1:2:0:365:14.75:9999:0:15:0.75:0",
+        "modeSwitch4":"10:6:1:2:0:500:4:14.75:0:10:0.5:0.75",
+        "modeSwitch5":"10:6:1:2:365:500:14.75:9999:15:10:0.75:0",
+        "modeSwitch6":"10:6:2:10.0001:0:500:4:9999:0:15:0.5:0",
+        "modeSwitch7":"0:6:2:10.0001:500:9999:1:9999:15:0:0:0",
+        "modeSwitch8":"0:6:1:2:500:9999:1:9999:10:0:0:0"
+    },
+    // WideSwitchModeVideo60list settings
+    "CameraRoleWideVideo60FPSCaselist": {
+        "modeSwitch0":"5:6:2:15.0001:0:380:0:3:0:20:0:0.5",
+        "modeSwitch1":"12:6:2:15.0001:0:380:3:9999:0:20:0.5:0",
+        "modeSwitch2":"10:6:1:2:0:9999:3:9999:0:0:0.5:0",
+        "modeSwitch3":"10:6:2:15.0001:0:380:3:9999:0:20:0.5:0",
+        "modeSwitch4":"10:6:2:15.0001:380:9999:3:9999:20:0:0.5:0",
+        "modeSwitch5":"0:6:1:2:0:9999:0:3:0:0:0:0.5",
+        "modeSwitch6":"0:6:2:15.0001:380:9999:0:3:20:0:0:0.5"
+    },
+    // WideSwitchModeDocumentCaselist settings
+    "CameraRoleWideDocumentCaselist": {
+        "modeSwitch0":"5:6:2:20:0:385:0:9999:0:30:0:0",
+        "modeSwitch1":"0:6:2:20:385:9999:0:9999:30:0:0:0",
+        "modeSwitch2":"0:6:1:2:0:9999:0:9999:0:0:0:0"
+    },
+    // WideSwitchModeStreetPhotographyCaselist settings
+    "CameraRoleWideStreetPhotographyCaselist": {
+        "modeSwitch0":"5:6:2:20:0:460:0:4:0:20:0:0",
+        "modeSwitch1":"11:1:1:1.25:0:440:14.75:9999:0:10:0.75:0",
+        "modeSwitch2":"10:6:1.25:2:0:515:4:9999:0:15:0.5:0",
+        "modeSwitch3":"10:6:1:1.25:0:515:4:14.75:0:15:0.5:0.75",
+        "modeSwitch4":"10:6:1:1.25:440:515:14.75:9999:10:15:0.75:0",
+        "modeSwitch5":"10:6:2:20:460:9999:4:9999:20:0:0.5:0",
+        "modeSwitch6":"10:6:2:20:0:460:4.5:9999:0:20:0.5:0",
+        "modeSwitch7":"0:6:1.25:2:0:515:0:4:0:15:0:0.5",
+        "modeSwitch8":"0:6:1.25:2:515:9999:0:9999:15:0:0:0",
+        "modeSwitch9":"0:6:2:20:460:9999:0:4:20:0:0:0.5",
+        "modeSwitch10":"0:6:1:1.25:0:515:0:4:0:15:0:0.5",
+        "modeSwitch11":"0:6:1:1.25:515:9999:0:9999:15:0:0:0"
+    },
+    // WideSwitchModeSubCapturelist settings
+    "CameraRoleWideSubCaptureCaselist": {
+    },
+    // WideSwitchModeSubScreenVid30list settings
+    "CameraRoleWideSubScreenVid30Caselist": {
+    },
+    // WideSwitchModeSubScreenVid60list settings
+    "CameraRoleWideSubScreenVid60Caselist": {
+    },
+    // CameraRoleTeleSwitchModeNum settings
+    "CameraRoleTeleSwitchModelist": {
+        //< captureModeNum | video30FPSModeNum | motionCaptureModeNum | video60FPSModeNum | documentMode | streetPhotographyMode | subCaptureModeNum | subScreenVid30ModeNum | subScreenVid60ModeNum >
+        "SwitchModeNum":"3:5:5:1:3:1:0:0:0"
+    },
+    // CameraRoleTeleSwitchModeCapturelist settings
+    "CameraRoleTeleCaptureCaselist": {
+        "modeSwitch0":"5:6:10:120.0001:0:395:0:9999:0:15:0:0",
+        "modeSwitch1":"0:6:5:10:0:9999:0:9999:0:0:0:0",
+        "modeSwitch2":"0:6:10:120.0001:395:9999:0:9999:15:0:0:0"
+    },
+    // CameraRoleTeleSwitchModeVideo30list settings
+    "CameraRoleTeleVideo30FPSCaselist": {
+        "modeSwitch0":"4:6:10:15.0001:0:435:0:6.5:0:15:0:0",
+        "modeSwitch1":"10:6:5:10:0:9999:3:9999:0:0:0.5:0",
+        "modeSwitch2":"10:6:10:15.0001:0:435:6:9999:0:15:0.5:0",
+        "modeSwitch3":"0:6:5:10:0:9999:0:3:0:0:0:0.5",
+        "modeSwitch4":"0:6:10:15.0001:435:9999:0:9999:15:0:0:0"
+    },
+    // CameraRoleTeleSwitchModeMotionCapturelist settings
+    "CameraRoleTeleMotionCapturelist": {
+        "modeSwitch0":"5:6:10:10.0001:0:260:1:9999:0:30:0:0",
+        "modeSwitch1":"8:6:5:10:0:450:1:9999:0:15:0:0",
+        "modeSwitch2":"8:6:10:10.0001:260:450:1:9999:30:15:0:0",
+        "modeSwitch3":"0:6:5:10:450:9999:1:9999:15:0:0:0",
+        "modeSwitch4":"0:6:10:10.0001:450:9999:1:9999:15:0:0:0"
+    },
+    // CameraRoleTeleSwitchModeVideo60list settings
+    "CameraRoleTeleVideo60FPSCaselist": {
+        "modeSwitch0":"0:6:5:15.0001:0:9999:0:9999:0:0:0:0"
+    },
+    // CameraRoleTeleSwitchModeDocumentCaselist settings
+    "CameraRoleTeleDocumentCaselist": {
+        "modeSwitch0":"5:6:10:120.0001:0:385:0:9999:0:30:0:0",
+        "modeSwitch1":"0:6:10:120.0001:385:9999:0:9999:30:0:0:0",
+        "modeSwitch2":"0:6:5:10:0:9999:0:9999:0:0:0:0"
+    },
+    // CameraRoleTeleSwitchModeStreetPhotographyCaselist settings
+    "CameraRoleTeleStreetPhotographyCaselist": {
+        "modeSwitch0":"0:6:5:120.0001:0:9999:0:9999:0:0:0:0"
+    },
+    "CameraRoleTeleSubCaptureCaselist": {
+    },
+    "CameraRoleTeleSubScreenVid30Caselist": {
+    },
+    "CameraRoleTeleSubScreenVid60Caselist": {
+    },
+    // BinningModeTele settings
+    "BinningModeTele": {
+        "teleDXGModeSwitchThre": "0:9999:9999:9999:9999|0:9999:9999:9999:9999"
+    },
+    //SAT PIP
+    "SatPipControlInfo": {
+        "isSatPipSupported": true,
+        // PIP role id |UW:1|W:2|T:3|UT:4|
+        "satPipCameraRoleId": 3,
+        "satPipZoomRatioStarted": 20.0
+    },
+    "satZoomAnimation":{
+        // 0:beizer + powerExp dynamic model by zoomratio, 1:only powerExp model,
+        // 2:only bezier model, 3:beizer + powerExp dynamic model by distance
+        "zoomAnimationSwitch":3,
+        "FrequentClickFrameMin":10,
+        "FrequentClickFrameMax":16,
+        "DarkFrequentClickFrameMin":4,
+        "DarkFrequentClickFrameMax":6,
+        "AnimationSwitchDistanceCm":100.0,
+        // bezier model
+        "bezierAnimationFrameMin":10,
+        "bezierAnimationFrameMax":16,
+        // power-exponent model
+        "algoReserveMargin":0.92,
+        "powerExpAnimationFrameMin":10,
+        "powerExpAnimationFrameMax":16
+    },
+    "monocularSettings":{
+        "enableMonocularZoom":false,
+        "zoomSlowDoneRatio":1.1
+    },
+    "enablePreviewFusion":1,
+    "isSatFollowFingersOpt":true,
+    "modeSwitchDefault":"0:3",
+    "modeSwitchBandingDefault":"8:3",
+    "fusionCaptureLuxThreshold":400,
+    "isDisableAUXToUW":true,
+    // 3rd SAT fallback settings
+    "Sat3rdFallback": {
+        "satFallbackSwitch": 2,
+        "disFbZoomRatio": "1:5.0:5.0:20.0|0:0:5.0:15.1",
+        "luxFbZoomRatio": "1:5.0:5.0:20.0|0:0:5.0:15.1",
+        "satFallbackUT2T": "0:0:9999:9999|0:0:9999:9999",
+        "satFallbackUT2W": "0:0:9999:9999|0:0:9999:9999",
+        "satFallbackT2W": "30:40:9999:9999|30:40:9999:9999",
+        "satFallbackW2UW": "10:16:480:530|0:0:9999:9999",
+        "satFallbackDelta": "12:5:0:0:0|12:0:0:0:0"
+    },
+    // 3rd InSensorZoom settings
+    "In3rdSensorZoom": {
+        "enableInSensorZoom": false,
+        // Wide: 0x02 Tele3x: 0x04 Tele5x: 0x08
+        "ISZEnableCameraRole": 6,
+        // Zoom support range threshold: Wide , Tele , UltraTele, todo:static meta
+        "ISZThresholdZoomRange": "2.0:19.9999:10.0:120.1:0:0",
+        // Correponding sensor condition threshold: Wide , Tele , UltraTele
+        "ISZThresholdInterval": "1:360:400|1:340:370",
+        // Video correponding sensor condition threshold: Wide , Tele , UltraTele
+        "VideoISZThresholdInterval": "1:360:400|1:340:370",
+        "enableVideoISZ": "0:1:1:0"
+    },
+    //SAT PIP
+    "Sat3rdPipControlInfo": {
+        "isSatPipSupported": false,
+        // PIP role id |UW:1|W:2|T:3|UT:4|
+        "satPipCameraRoleId": 3,
+        "satPipZoomRatioStarted": 20.0
+    },
+
+    "monocular3rdSettings":{
+        "enableMonocularZoom":false,
+        "zoomSlowDoneRatio":1.1
+    },
+    "enable3rdPreviewFusion":0,
+    "isSat3rdFollowFingersOpt":false,
+
+    "3rdCameraRoleUltraWideSwitchModelist": {
+        //< captureModeNum | video30FPSModeNum | motionCaptureModeNum | video60FPSModeNum | subCaptureModeNum | subScreenVid30ModeNum | subScreenVid60ModeNum >
+        "SwitchModeNum":"1|0|0|0|0|0|0"
+    },
+    // UltraWideSwitchModeCapturelist settings
+    "3rdCameraRoleUltraWideCaptureCaselist": {
+        "modeSwitch0":"0:6:0.7:5:0:9999:0:9999:0:0:0:0"
+    },
+    // WideSwitchModeNum settings
+    "3rdCameraRoleWideSwitchModelist": {
+        //< captureModeNum | video30FPSModeNum | motionCaptureModeNum | video60FPSModeNum | subCaptureModeNum | subScreenVid30ModeNum | subScreenVid60ModeNum >
+        "SwitchModeNum":"2|0|0|2|0|0|0"
+    },
+    // WideSwitchModeCapturelist settings
+    "3rdCameraRoleWideCaptureCaselist": {
+        "modeSwitch0":"10:6:1:20:0:9999:4:9999:0:0:0.5:0",
+        "modeSwitch1":"0:6:1:20:0:9999:0:4:0:0:0:0.5"
+    },
+    // WideSwitchModeVideo60list settings
+    "3rdCameraRoleWideVideo60FPSCaselist": {
+        "modeSwitch0":"10:6:1:15.0001:0:9999:3:9999:0:0:0.5:0",
+        "modeSwitch1":"0:6:1:15.0001:0:9999:0:3:0:0:0:0.5"
+    },
+    // CameraRoleTeleSwitchModeNum settings
+    "3rdCameraRoleTeleSwitchModelist": {
+        //< captureModeNum | video30FPSModeNum | motionCaptureModeNum | video60FPSModeNum | subCaptureModeNum | subScreenVid30ModeNum | subScreenVid60ModeNum >
+        "SwitchModeNum":"1|0|0|0|0|0|0"
+    },
+    // CameraRoleTeleSwitchModeCapturelist settings
+    "3rdCameraRoleTeleCaptureCaselist": {
+        "modeSwitch0":"0:6:5:120.0001:0:9999:0:9999:0:0:0:0"
+    }
+}

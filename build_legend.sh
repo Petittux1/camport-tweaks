@@ -30,7 +30,7 @@ java -cp "$BT/r8.jar" com.android.tools.r8.D8 --release --lib "$SDK" --min-api 2
     --output "$B/dex" $(find "$B/classes" -name '*.class') "$B/apk/classes.dex"
 
 echo "== 4/5 打包"
-printf 'com.pudding.camport.MainHook\ncom.pudding.camport.hooks.LegendaryColor\ncom.pudding.camport.hooks.Mode231Probe\ncom.pudding.camport.hooks.Mode231Fix\ncom.pudding.camport.hooks.MasterLiveTune\ncom.pudding.camport.hooks.SmartCompFix\ncom.pudding.camport.hooks.HdrFix\ncom.pudding.camport.hooks.PaletteFix\ncom.pudding.camport.hooks.ZoomCycleFix\n' \
+printf 'com.pudding.camport.MainHook\ncom.pudding.camport.hooks.ConfigSelfHeal\ncom.pudding.camport.hooks.LegendaryColor\ncom.pudding.camport.hooks.Mode231Probe\ncom.pudding.camport.hooks.Mode231Fix\ncom.pudding.camport.hooks.MasterLiveTune\ncom.pudding.camport.hooks.SmartCompFix\ncom.pudding.camport.hooks.HdrFix\ncom.pudding.camport.hooks.PaletteFix\ncom.pudding.camport.hooks.ZoomCycleFix\ncom.pudding.camport.hooks.ZoomPathProbe\ncom.pudding.camport.hooks.LensSwitchFix\n' \
     > "$B/stage/assets/xposed_init"
 rm -f "$OUT"
 cp "$CAM/module.apk" "$OUT"
