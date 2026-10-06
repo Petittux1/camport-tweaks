@@ -31,5 +31,5 @@ ensure() {
     fi
 }
 
-ensure "$SAT_SRC" "$SAT_DST" 'zoomAnimationSwitch":2' 'modules/camzoom/files/satsettings.json'
+ensure "$SAT_SRC" "$SAT_DST" 'zoomAnimationSwitch":3' 'modules/camzoom/files/satsettings.json'
 ensure "$ZA_SRC"  "$ZA_DST"  '"flag_iqat": 1'         'modules/camzoom/files/miZA_params.json'
