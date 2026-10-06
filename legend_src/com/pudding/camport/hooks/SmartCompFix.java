@@ -3665,11 +3665,56 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
 
     /**
      * 每帧心跳 —— 直接回答「预览到底还出不出帧」。
-     * l9.p0.a(CaptureResult) = CaptureResultParser 的 getAsdNightResult，
-     * 每个采集结果（预览帧）都会走到，本机实测 ~33 条/秒。
-     * 预览卡住 = 这个时间戳不再前进。
+     *
+     * ★ 指标源已更换（2026-10-06 根因修复）★
+     * 旧源 l9.p0.a（CaptureResultParser.getAsdNightResult）在本机型**不是每帧指标**：
+     * 待机时根本不被调用，只在点按（AF→ASD 分析）后被调 1 次。看门狗拿它当帧流
+     * → 每次点按必报假停帧 → 自愈链 ~4s 后按 ②flush/abortCaptures 把预览管线
+     * 真的 flush 掉 → 用户看到 1.5~15s 真断流（RTPreview 断流与自愈#3 flush 精确
+     * 吻合，见 exp4.log 15:56:10.722）。下一 tap 由 app 自身 resumePreview 救回，
+     * 同时旧心跳被调刷新判定 → 表现为「点按恢复」。
+     *
+     * 新源 i.onCaptureResultNext：interceptor 基类，每个采集结果必走
+     * （30~60fps × 多拦截器，见 (k) 探针实测注释）。断流如实反映，
+     * 点按不再影响指标。
      */
     private static void installFrameHeartbeat() {
+        // 新帧流指标：每帧采集结果 → interceptor 分发
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.android.camera.module.interceptor.base.i", sCl,
+                    "onCaptureResultNext",
+                    android.hardware.camera2.CaptureResult.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam p)
+                                throws Throwable {
+                            try {
+                                sFrameN++;
+                                sLastFrame = android.os.SystemClock.elapsedRealtime();
+                                logN("hb", "帧心跳 frame=" + sFrameN, 300);
+                                if (sRingProbe == 1 && !sProbed) {
+                                    Object r = p.args.length > 0 ? p.args[0] : null;
+                                    if (!sHbArgSeen) {
+                                        sHbArgSeen = true;
+                                        log("帧心跳首帧 arg0=" + (r == null ? "null"
+                                                : r.getClass().getName())
+                                                + " args.len=" + p.args.length
+                                                + " frame=" + sFrameN);
+                                    }
+                                    ringProbe(r instanceof android.hardware.camera2.CaptureResult
+                                            ? (android.hardware.camera2.CaptureResult) r : null);
+                                }
+                            } catch (Throwable th) {
+                                err(th);
+                            }
+                        }
+                    });
+            log("probe 帧心跳 i.onCaptureResultNext ok（每帧采集结果）");
+        } catch (Throwable th) {
+            log("!! probe 帧心跳 i.onCaptureResultNext 失败 " + th);
+        }
+        // 旧探针 l9.p0.a：本机型非每帧（tap 后偶发），降级为纯观察，不更新指标
         try {
             XposedHelpers.findAndHookMethod("l9.p0", sCl, "a",
                     android.hardware.camera2.CaptureResult.class,
@@ -3677,28 +3722,12 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                         @Override
                         protected void afterHookedMethod(MethodHookParam p)
                                 throws Throwable {
-                            sFrameN++;
-                            sLastFrame = android.os.SystemClock.elapsedRealtime();
-                            logN("hb", "心跳 frame=" + sFrameN, 300);
-                            // 探针也挂这里：ringTick 只在 v2 tag 管线跑通时才走，
-                            // 挂心跳上保证「一开预览就能 dump」，不受 ring 通路影响
-                            if (sRingProbe == 1 && !sProbed) {
-                                Object r = p.args.length > 0 ? p.args[0] : null;
-                                if (!sHbArgSeen) {
-                                    sHbArgSeen = true;
-                                    log("心跳首帧 arg0=" + (r == null ? "null"
-                                            : r.getClass().getName())
-                                            + " args.len=" + p.args.length
-                                            + " frame=" + sFrameN);
-                                }
-                                ringProbe(r instanceof android.hardware.camera2.CaptureResult
-                                        ? (android.hardware.camera2.CaptureResult) r : null);
-                            }
+                            logN("asd", "ASD解析 l9.p0.a（非帧指标）", 300);
                         }
                     });
-            log("probe 心跳 l9.p0.a ok（每帧采集结果）");
+            log("probe ASD l9.p0.a ok（观察用，不作帧指标）");
         } catch (Throwable th) {
-            log("!! probe 心跳 l9.p0.a 失败 " + th);
+            log("!! probe ASD l9.p0.a 失败 " + th);
         }
     }
 

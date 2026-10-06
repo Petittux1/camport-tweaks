@@ -159,14 +159,18 @@ public final class HdrFix implements IXposedHookLoadPackage {
             return;
         }
 
-        // ① 阻断 AI帮拍 进入自动 HDR 互斥（修卡死的主档）
-        if (sLevel >= 1) {
+        // ① =1：只挡「进入」（10-02 的 12/12 enterMutexMode→sigabort 主档）
+        // ② =2：不挡进入，强制 isSuperResolutionHDR() → hdrType=5（10-02 数据里
+        //       AI帮拍出现过、0 崩溃的那条路，HDR 仍然生效）；若强制挂点失败
+        //       则退回 ① 的阻断兜底。10-06 实测 level1 下仍偶发
+        //       CSLMapBufferHW fd=0 → PrepareForRecovery×6 → SIGABRT，故试 2。
+        if (sLevel == 1) {
             hookHdrSceneChanged();
-        }
-
-        // ② 强制走超分 HDR（hdrType=5），保留 HDR 能力（实验档）
-        if (sLevel >= 2) {
-            hookSuperResolutionHdr();
+        } else if (sLevel >= 2) {
+            if (!hookSuperResolutionHdr()) {
+                log("level2 强制超分HDR 失败 → 退回阻断（level1 语义）");
+                hookHdrSceneChanged();
+            }
         }
     }
 
@@ -203,8 +207,8 @@ public final class HdrFix implements IXposedHookLoadPackage {
         }
     }
 
-    /** 强制 isSuperResolutionHDR() → true，让 hdrType 走 5（超分HDR） */
-    private static void hookSuperResolutionHdr() {
+    /** 强制 isSuperResolutionHDR() → true，让 hdrType 走 5（超分HDR）；挂点成功返回 true */
+    private static boolean hookSuperResolutionHdr() {
         try {
             XposedHelpers.findAndHookMethod(C_C2M, sCl, M_SRHDR, new XC_MethodHook() {
                 @Override
@@ -226,8 +230,10 @@ public final class HdrFix implements IXposedHookLoadPackage {
                 }
             });
             log("hook " + C_C2M + "#" + M_SRHDR + " ok");
+            return true;
         } catch (Throwable th) {
             log("!! hook " + C_C2M + "#" + M_SRHDR + " 失败 " + th);
+            return false;
         }
     }
 
