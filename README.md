@@ -267,6 +267,25 @@ f40->f45  k=1.050 (0.121)                 指令 1.039
 displayRect 正中心，`mFocusAreaRect` 是我们合成的框；两者不重合 → 引导环画箭头 + 方向提示，
 旧默认 `x=0.40,y=0.30` 把兜底框放到屏幕中心下方 ~162px → 没主体时**永远提示「向下移动手机」**。
 
+**10-06 定案：没主体时「一直在动 / 顶部『构图完成』+ 中间白方块反复出现消失」（v0.14.2）**
+
+两层原因，都修了：
+
+1. **状态机循环**：无主体时原生 `consumeResultOnMainThreadIfDataChanged` 照样执行，
+   拿**空 RectF** 去刷 UI → `compositionShow → Completed → Ignore the data(×25) → Idle → 又 Show`，
+   约 1~2 秒一圈，正是顶部提示条和白方块反复消失又显示。
+   修法：无主体时**直接 `p.setResult(null)` 拦掉原生**，UI 一次都不刷。
+   （已核对：该方法只「读数据 → 算坐标 → 刷 UI」，**不参与帧流转**，拦掉不会导致 MIVI 空帧。）
+2. **根本没走到无主体分支**：`ring.src` 默认 0 的兜底是**自动对焦区**，而相机对空墙也永远有
+   中心 AF 区（实测正好在画面正中心 `2048,1536`、面积仅 8%，**不触发 `ringAf` 自带的 >55% 过滤**）
+   → 永远判「有主体」。改成 **`ring.src=1` 只认人脸** = 画面里没人就完全静止（对齐 18 Pro Max）。
+
+> 踩坑：「有没有主体」只能看 `sRingSeen`（`SystemClock.elapsedRealtime` 时基），
+> **不能看 `F_V2_DATA`** —— `ringTick` 在主体消失后仍会沿用上一帧最长 800ms，
+> 那期间数据依然有效，只看数据会让静默被每帧复位（第一版就栽在这里，`fresh` 恒 true 静默形同虚设）。
+
+顺带关掉 `ring.probe`（诊断用，在帧回调线程刷几百条 CaptureResult key，默认 `=0`）。
+
 <details><summary>历史：10-02 的诊断（两代实现 + 8 道门）</summary>
 
 **核心事实：相机里其实有两代智能构图，`CaptureModule.appendInterceptor` 靠 `V3`/`U3` 二选一。**

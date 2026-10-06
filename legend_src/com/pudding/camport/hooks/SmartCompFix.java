@@ -586,7 +586,16 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
     private static volatile int sRingTip = 0;
     // ---- 档8：场景驱动（从 CaptureResult 的人脸/对焦区算，不再用固定矩形）----
     // ring.src  0=人脸→对焦区→沿用上一帧（默认） 1=只用人脸 2=只用对焦区 3=固定矩形(旧行为)
-    private static volatile int sRingSrc;
+    // ★ 默认 1 = 只认人脸 ★
+    //   0 的兜底是「自动对焦区」，而相机对空墙也永远有中心 AF 区
+    //   （实测正好是画面中心 2048,1536，面积仅 8% 不触发 >55% 过滤），
+    //   结果就是「没主体也永远有主体、引导一直在动」。
+    //   改成只认脸后，画面里没人 = sub=null = 完全静止（对齐 18 Pro Max）。
+    private static volatile int sRingSrc = 1;
+    // ring.idle 0=没识别到主体就**什么都不喂**（对齐 18 Pro Max：引导框随识别出现/消失）
+    //           1=老行为，没主体也硬塞一个固定兜底框（导致「一直在动」「每两秒都在识别」）
+    //           注：ring.src=3（只用固定矩形）时不受此开关影响，必须照常合成
+    private static volatile int sRingIdle = 0;
     // ring.pad  主体框外扩倍数（1.30 = 框比人脸大 30%）
     private static volatile float sRingPad = 1.30f;
     // ring.fill 目标主体占画面宽度比，自动变焦按它反算目标倍率
@@ -2655,7 +2664,26 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                                         return;
                                     }
                                     Object cur = XposedHelpers.getObjectField(p.thisObject, F_V2_DATA);
-                                    if (cur instanceof float[] && ((float[]) cur).length == 6) {
+                                    boolean hasData = cur instanceof float[] && ((float[]) cur).length == 6;
+                                    // ★ 主体新鲜度 ★
+                                    //   ringTick 在主体消失后仍会**沿用上一帧最长 800ms**（防人脸闪一下就丢），
+                                    //   这段时间 cur 依然有效，但真实主体已经没了。
+                                    //   所以判「有没有主体」只能看 sRingSeen，绝不能只看 cur。
+                                    boolean fresh = hasData
+                                            && (android.os.SystemClock.elapsedRealtime() - sRingSeen) < 800L;
+                                    // ★ 没识别到主体 → 彻底静默，原生一次都不许跑 ★
+                                    //   只「不喂数据」是没用的：原生照样会拿空 RectF 去刷 UI，
+                                    //   状态机就走 compositionShow → Completed → Ignore → Idle 的循环
+                                    //   （约 1~2 秒一圈），表现正是「构图完成」提示条和白色方块
+                                    //   反复出现又消失。只要这里直接拦掉原生，UI 不再被刷新，就停了。
+                                    //   ring.idle=1 恢复旧行为；ring.src=3（固定矩形）必须照常合成。
+                                    if (sRingIdle != 1 && sRingSrc != 3 && !fresh) {
+                                        p.setResult(null);   // 原生不执行 → UI 不刷新 → 状态机停住
+                                        logN("ringidle",
+                                                "无主体 → 静默（拦掉原生，UI 不再刷新）", 30);
+                                        return;
+                                    }
+                                    if (hasData) {
                                         float[] d = (float[]) cur;
                                         // 证明场景数据真的被相机自己的 consumeResult 吃掉了
                                         logN("v2feed", "consumeResult 吃到场景数据 rect=("
@@ -4276,6 +4304,8 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                         sRingTip = Integer.parseInt(v);
                     } else if ("ai.smartcomp.ring.src".equals(k)) {
                         sRingSrc = Integer.parseInt(v);
+                    } else if ("ai.smartcomp.ring.idle".equals(k)) {
+                        sRingIdle = Integer.parseInt(v) != 0 ? 1 : 0;
                     } else if ("ai.smartcomp.ring.pad".equals(k)) {
                         sRingPad = Float.parseFloat(v);
                     } else if ("ai.smartcomp.ring.fill".equals(k)) {
@@ -4524,6 +4554,7 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                                     + " ring.zoom=" + sRingZoom
                                     + " ring.tip=" + sRingTip
                                     + " ring.src=" + sRingSrc
+                                    + " ring.idle=" + sRingIdle
                                     + " ring.pad=" + sRingPad
                                     + " ring.fill=" + sRingFill
                                     + " ring.autozoom=" + sRingAutoZoom
