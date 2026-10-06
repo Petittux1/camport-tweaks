@@ -375,6 +375,20 @@ python3 wscan.py <gray文件> <宽> <高> <k下限> <k上限>
 | **LSPosed 模块**（`legendfix.apk`） | LSPosed，作用域 `com.android.camera` | app 层：配置自愈、按倍率分段放行换镜、变焦路径探针 |
 | **KSU 模块**（`camzoom`，源码 `ksu-module/`） | KernelSU 刷入 | HAL 层：bind 挂载 3 个 `/odm/etc/camera` 配置到 init ns |
 
+### ⚠ 机型白名单（v1.1 新增）
+
+模块里的 3 份配置是 **Xiaomi 17 Pro (pandora) 原厂文件改出来的**，
+其中 `camxoverridesettings.txt` 是**整机 HAL 配置** —— 直接覆盖到别的机型会让
+CHI 配流失败、**相机打不开**（小米17 已经踩过）。
+
+`devices.txt` 每行一个 `ro.product.device`，**不在名单里模块直接跳过、一个字节都不改**：
+
+```
+pandora          # 当前唯一验证过的机型
+# 要在别的机器上试：先备份 /odm/etc/camera/ 下同名文件，
+# 把 `getprop ro.product.device` 追加一行，再重启验证
+```
+
 KSU 模块挂载（`post-fs-data.sh`，均 `mount --bind` 到 pid1 ns）：
 
 ```

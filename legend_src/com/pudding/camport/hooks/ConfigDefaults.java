@@ -252,12 +252,19 @@ public final class ConfigDefaults {
 +         "# 阻断日志形如：阻断 AI帮拍 进入自动HDR互斥。\n"
 +         "# ai.hdrfix=0  不阻断   ai.hdrfix=1  阻断（默认）\n"
 +         "ai.hdrfix=1\n"
-+         "legend.lensswitch=0\n"
-+         "legend.telefix=0\n";
-
-    /** 必须保持的开关（防止其他写入者把它们改回默认） */
-    public static final String[][] FORCE = {
-        {"legend.lensswitch", "0"},
-        {"legend.telefix", "0"}
-    };
++         "# ── 非线性换镜变焦（LensSwitchFix）────────────────────────────\n"
++         "# legend.lensswitch=1          换镜放行总开关。**必须为 1**：\n"
++         "#                              代码默认开，自愈若补 0 会让已修好的模糊复发。\n"
++         "# legend.lensswitch_minzoom=1.5 只在倍率 >= 此值时放行，低于不干预。\n"
++         "#                              1.5 正好卡在 0.7/1/2 之外，低倍画质不受影响。\n"
++         "# legend.telefix=0             长焦修复保持关闭（与 lensswitch 叠加会模糊半秒）。\n"
++         "legend.lensswitch=1\n"
++         "legend.lensswitch_minzoom=1.5\n"
++         "legend.telefix=0\n"
++         "# ── 变焦路径探针（排障用）────────────────────────────────────\n"
++         "# legend.zoompath=0            0=关。**默认必须关**：ZoomPathProbe 代码默认是开，\n"
++         "#                              常开会对每个变焦事件写日志，白耗 CPU 且容易触发热降频。\n"
++         "# legend.zoomdur_ms=0          强制 app 变焦动画时长(ms)，0=不干预。\n"
++         "legend.zoompath=0\n"
++         "legend.zoomdur_ms=0\n";
 }

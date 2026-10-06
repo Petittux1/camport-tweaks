@@ -1,0 +1,7 @@
+# CamZoom 模块机型白名单（每行一个 ro.product.device）
+# 模块里的 3 份 /odm 配置是 Xiaomi 17 Pro 原厂文件改出来的，
+# camxoverridesettings.txt 是整机 HAL 配置，换机型直接覆盖会让相机打不开。
+# 想在别的机器上试：先备份 /odm/etc/camera/ 下同名文件，再把该机的
+# `getprop ro.product.device` 追加到下面一行，重启验证。
+# 写一行 all = 放行所有机型（自担风险）。
+pandora

@@ -1,6 +1,7 @@
 id=camzoom
-name=CamZoom Smooth - SAT 非线性变焦
-version=v1.0
-versionCode=10
+name=CamZoom Smooth - SAT 非线性换镜变焦
+version=v1.1
+versionCode=11
 author=pudding
-description=让 SAT 点按变焦恒走 bezier 非线性动画（不再按距离退回线性），并开启 IQAT 切镜融合，消除换镜头时的模糊/硬切。改 /odm/etc/camera/xiaomi/satsettings.json 与 /odm/etc/camera/miZA_params.json，卸载即恢复出厂。
+description=HAL 层：bind 挂载 3 份 /odm 相机配置（satsettings.json / miZA_params.json / camxoverridesettings.txt），配合 LSPosed 模块 legendfix.apk 的分段放行开关，消除换镜头时的模糊与视差跳动。含 devices.txt 机型白名单（默认仅 pandora=小米17 Pro），不在名单内的机型自动跳过、不改动系统，卸载即恢复出厂。
+devices=devices.txt 机型白名单（当前仅 pandora；换机型请自行追加，否则模块跳过不挂载）

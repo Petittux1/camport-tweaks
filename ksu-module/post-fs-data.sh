@@ -12,6 +12,28 @@ CX_DST="/odm/etc/camera/camxoverridesettings.txt"
 
 echo "==== $(date) post-fs-data ====" >> "$LOG"
 
+# ---- 机型白名单 --------------------------------------------------------
+# 这三份配置是 Xiaomi 17 Pro (pandora) 的原厂文件改出来的，其中
+# camxoverridesettings.txt 是整机 HAL 配置，直接覆盖到别的机型会
+# 让 CHI 配流失败 -> 相机打不开。
+# devices.txt：每行一个 ro.product.device，# 开头为注释；写一行 all 放行全部。
+DEV=$(getprop ro.product.device)
+WL="$MODDIR/devices.txt"
+ALLOW=0
+if [ -f "$WL" ]; then
+    while IFS= read -r line; do
+        case "$line" in ''|\#*) continue ;; esac
+        [ "$line" = "all" ] && { ALLOW=1; break; }
+        [ "$line" = "$DEV" ] && { ALLOW=1; break; }
+    done < "$WL"
+fi
+if [ "$ALLOW" != "1" ]; then
+    echo "  跳过: 机型 $DEV 不在 $WL 白名单内（不改动任何 /odm 配置）" >> "$LOG"
+    echo "  要在这台机器上启用：把 $DEV 追加进 devices.txt 再重启" >> "$LOG"
+    exit 0
+fi
+echo "  机型 $DEV 已放行" >> "$LOG"
+
 initns() { nsenter -t 1 -m -- "$@" 2>/dev/null; }
 
 prep() {
