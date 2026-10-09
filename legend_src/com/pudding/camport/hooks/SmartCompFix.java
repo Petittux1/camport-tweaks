@@ -754,6 +754,8 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
     private static volatile long sStallStart;
     /** 帧停太久（相机关闭/退后台）后静音，直到帧恢复 */
     private static volatile boolean sStallMuted;
+    /** 本轮停帧起于后台（前台判据：后台停帧只记一行，不 dump、不报持续） */
+    private static volatile boolean sStallBg;
 
     // ---- 停帧自愈（diag.stallheal）----
     // 现象：拍完预览面冻住 10~30s，HAL 不再回帧（主线程其实是空闲的，
@@ -1185,6 +1187,7 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
         sInstalled = true;
         ensureCfg();
         installFrameHeartbeat();
+        installFgFlag();
         installStallHeal();
         startWatchdog();
         log("installed ai.smartcomp=" + sLevel
@@ -3881,12 +3884,25 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                                 if (sStallStart == 0) {
                                     sStallStart = lf;
                                     lastHit = now;
-                                    String bs = miviBusy() ? "MIVI忙" : "MIVI空";
-                                    if (sWd > 0) {
-                                        dumpStuck("★ 预览/采集停帧(" + bs + ")", age);
+                                    if (!sForeground) {
+                                        // 前台判据：后台停帧 = 退后台/进程被冻结的
+                                        // 自然停帧（2026-10-08 实测 5 次报警里 3 次
+                                        // 是这种），只记一行，不 dump、不进持续报警。
+                                        sStallBg = true;
+                                        log("★ 后台停帧忽略 " + age
+                                                + "ms（前台判据）");
                                     } else {
-                                        log("★ 预览/采集停帧 " + age + "ms " + bs);
+                                        sStallBg = false;
+                                        String bs = miviBusy() ? "MIVI忙" : "MIVI空";
+                                        if (sWd > 0) {
+                                            dumpStuck("★ 预览/采集停帧(" + bs + ")", age);
+                                        } else {
+                                            log("★ 预览/采集停帧 " + age + "ms " + bs);
+                                        }
                                     }
+                                } else if (sStallBg || !sForeground) {
+                                    // 后台期间不报持续停帧；期间回到前台的话
+                                    // fg 钩子会清 sStallStart 重新走上面的起报。
                                 } else if (!sStallMuted
                                         && now - lastHit >= 1000) {
                                     if (age > 30000) {
@@ -3904,11 +3920,19 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                                     }
                                 }
                             } else if (sStallStart != 0) {
-                                log("★ 帧恢复：共停了 " + (now - sStallStart) + "ms"
-                                        + (sHealN > 0
-                                                ? "（自愈 " + sHealN + " 次）" : ""));
+                                if (sStallBg) {
+                                    log("★ 后台停帧结束 共停了 "
+                                            + (now - sStallStart) + "ms");
+                                } else {
+                                    log("★ 帧恢复：共停了 "
+                                            + (now - sStallStart) + "ms"
+                                            + (sHealN > 0
+                                                    ? "（自愈 " + sHealN + " 次）"
+                                                    : ""));
+                                }
                                 sStallStart = 0;
                                 sStallMuted = false;
+                                sStallBg = false;
                                 sHealN = 0;   // 一轮结束，下次停帧还能再自愈
                             }
 
@@ -3940,7 +3964,8 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                             hits = 0;
                             continue;
                         }
-                        if (now - since >= ms && now - lastMain >= 1000) {
+                        if (sForeground && now - since >= ms
+                                && now - lastMain >= 1000) {
                             lastMain = now;
                             hits++;
                             StringBuilder sb = new StringBuilder();
@@ -4237,6 +4262,17 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
         } catch (Throwable th) {
             log("!! heal: hook l9.y0.C1 失败 " + th);
         }
+        installFgFlag();
+    }
+
+    /** 前台标志钩子：看门狗前台判据 + 停帧自愈共用；stallheal=0 也必须装 */
+    private static volatile boolean sFgInstalled;
+
+    private static void installFgFlag() {
+        if (sFgInstalled) {
+            return;
+        }
+        sFgInstalled = true;
         try {
             XC_MethodHook fg = new XC_MethodHook() {
                 @Override
@@ -4252,6 +4288,14 @@ public final class SmartCompFix implements IXposedHookLoadPackage {
                     boolean on = "onResume".equals(p.method.getName());
                     if (sForeground != on) {
                         sForeground = on;
+                        if (on) {
+                            // 回前台：后台起的停帧重新起报（前台真停帧不漏）
+                            if (sStallBg && sStallStart != 0) {
+                                sStallStart = 0;
+                            }
+                            sStallBg = false;
+                            sStallMuted = false;
+                        }
                         log("heal: " + (on ? "回到前台" : "离开前台 → 停自愈")
                                 + " (" + cn + ")");
                     }
