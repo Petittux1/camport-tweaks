@@ -85,18 +85,24 @@ import java.lang.reflect.Field;
  *                          s6.O.consumeResultOnMainThreadIfDataChanged(SourceFile:182)
  *
  * ============================================================
- * config: ai.hdrfix = 0|1|2
+ * config: ai.hdrfix = 0|1|2   （10-09 重定位：=2 已是根治主档，=1 降为兜底）
  * ============================================================
  *   0 = 关（默认，不干预）
- *   1 = 只挡「进入」：mode==168 时把 onHdrSceneChanged 的 true 改成 false。
- *       mutexModePicker 永远停在 0 → 不会 enterMutexMode → 不会 setHDR0x1
- *       → 不会切 usecase → 不会 bad state / sigabort。
- *       退出分支照常放行（且因为从没进入，实际不会走到）。
- *       代价：AI帮拍 在亮场不合并 HDR（单帧），高光可能过曝。
- *   2 = 不挡进入，改成强制走超分HDR：isSuperResolutionHDR() → true
- *       → hdrType = 5（日志里在 AI帮拍 出现过、0 崩溃的那条路），HDR 仍然生效。
- *       注意：它同时会让 updateSRAndMFNR() 多下发一个 hdrType=4，
- *             属于较激进的档位，先用 1 验证因果，再试 2。
+ *   1 = 挡「进入」：mode==168 时把 onHdrSceneChanged 的 true 改成 false，
+ *       mutexModePicker 停在 0 → 不 enterMutexMode → 不 setHDR0x1 → 不切 usecase。
+ *       ⚠ 10-09 实测证伪为「主档」：hdrfix=1 下 .a(1) 一次都没被调用、
+ *       HDR 进入已彻底堵死，12:17/12:22 照样 provider SIGABRT 同栈。
+ *       —— 说明「挡住 HDR 进入」根本不是病因方向，HAL 照样楔死。
+ *       代价：AI帮拍 亮场不合并 HDR（单帧），高光可能过曝。
+ *       现役角色：仅作 level2 挂点失败时的安全兜底（见下）。
+ *   2 = 根治主档：放行进入 + 双强制 hdrType=5
+ *       ① 挂 Camera2Module.isSuperResolutionHDR() → true
+ *       ② 挂 Pe.b.m2() → true（瞬时 flag sForceHdr5，只在 .a(1)/mode=168 期间）
+ *       → 公式 (m2() && isSR()) 必为 true → hdrType = 5 下发，HDR 仍然生效。
+ *       背景：作者 10-02 统计 AI帮拍+hdrType=1 → 12/12 崩、hdrType=5 → 0 崩；
+ *       旧 level2 只强制 isSR()，(m2() && isSR()) 在 m2()=false 时短路 →
+ *       type1 静默溜进去（10-08 卡死），故本版补上 m2() 强制。
+ *       安全兜底：任一挂点失败 → 退回 =1 阻断语义，绝不放 hdrType=1 出去。
  *
  * 只改配置不用重装： su -c am force-stop com.android.camera
  *
@@ -126,11 +132,22 @@ public final class HdrFix implements IXposedHookLoadPackage {
     private static final String C_C2M = "com.android.camera.module.Camera2Module";
     private static final String M_SRHDR = "isSuperResolutionHDR";
 
+    /** dex LPe/b; —— 能力门单例（jadx 里 Pe.b.b.a），hdrType 公式左半 m2() 在这 */
+    private static final String C_M2 = "Pe.b";
+    private static final String M_M2 = "m2";
+
     /** AI帮拍 mode index = 168 = 0xa8 */
     private static final int MODE_AI = 168;
 
     private static ClassLoader sCl;
     private static boolean sInstalled;
+
+    /** true = 挡进入（level1 / level2 兜底）；false = 放行进入 + 强制 hdrType=5（level2 主档） */
+    private static volatile boolean sBlockEntry;
+    /** true = level2 成功挂上 m2()+isSR() 双强制，hdrType 会被算成 5 */
+    private static volatile boolean sForce5;
+    /** 瞬时 flag：只在 Camera2Module$c.a() 计算 hdrType 的那几行期间为 true，供 m2() 钩子判读 */
+    private static volatile boolean sForceHdr5;
 
     // ---- config ----
     private static volatile boolean sCfgDone;
@@ -141,6 +158,10 @@ public final class HdrFix implements IXposedHookLoadPackage {
     private static boolean sRefGiveUp;
 
     private static int sBudget = 8;
+    /** 诊断专用预算：Camera2Module$c.a 的日志独立于 onHdrSceneChanged（否则被阻断刷屏吃光） */
+    private static int sChokeBudget = 12;
+    /** Camera2Module$c 里指向外部 Camera2Module 的字段（首扫后缓存） */
+    private static Field sChokeOuterField;
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
@@ -159,17 +180,34 @@ public final class HdrFix implements IXposedHookLoadPackage {
             return;
         }
 
-        // ① =1：只挡「进入」（10-02 的 12/12 enterMutexMode→sigabort 主档）
-        // ② =2：不挡进入，强制 isSuperResolutionHDR() → hdrType=5（10-02 数据里
-        //       AI帮拍出现过、0 崩溃的那条路，HDR 仍然生效）；若强制挂点失败
-        //       则退回 ① 的阻断兜底。10-06 实测 level1 下仍偶发
-        //       CSLMapBufferHW fd=0 → PrepareForRecovery×6 → SIGABRT，故试 2。
+        // ① =1：只挡「进入」（10-02 的 12/12 enterMutexMode→sigabort 主档；
+        //       但 10-09 实测「挡死后仍崩」—— 挡住后 app 对亮场零反应，
+        //       HAL 照样在 AI帮拍+亮场 楔死，故 =1 只作兜底，不再是主档）
+        // ② =2：放行进入，双强制 m2() + isSuperResolutionHDR() → hdrType 必为 5
+        //       （10-02 数据：AI帮拍 里 hdrType=5 → PrepareForRecovery 0 次、0 崩溃）。
+        //       旧 level2 只强制 isSR()，被 (m2() && isSR()) 的 m2()=false 短路，
+        //       type1 静默溜进去（10-08 卡死实证）—— 现在把 m2() 也一并强制，堵死短路。
+        //       任一挂点失败 → 退回 ① 的阻断，绝不让 hdrType=1 溜出去。
         if (sLevel == 1) {
-            hookHdrSceneChanged();
+            sBlockEntry = true;
+            sForce5 = false;
+            hookHdrSceneChanged();   // 路径①：onHdrSceneChanged(true) → 不让 .e(1)
+            hookMutexChokepoint();   // 路径②+：Camera2Module$c.a(1) 汇聚点兜底 + 诊断日志
         } else if (sLevel >= 2) {
-            if (!hookSuperResolutionHdr()) {
-                log("level2 强制超分HDR 失败 → 退回阻断（level1 语义）");
+            boolean srOk = hookSuperResolutionHdr();
+            boolean m2Ok = hookM2Capability();
+            if (srOk && m2Ok) {
+                sBlockEntry = false;  // 放行进入，让 hdrType=5 正常下发
+                sForce5 = true;
+                hookMutexChokepoint(); // 不挡，只做诊断日志 + 给 m2() 钩子打瞬时 flag
+                log("level2 双强制就绪：m2()+isSR() → hdrType=5（放行进入）");
+            } else {
+                sBlockEntry = true;
+                sForce5 = false;
+                log("level2 强制超分HDR 失败（srOk=" + srOk + " m2Ok=" + m2Ok
+                        + "）→ 退回阻断（level1 语义）");
                 hookHdrSceneChanged();
+                hookMutexChokepoint();
             }
         }
     }
@@ -234,6 +272,156 @@ public final class HdrFix implements IXposedHookLoadPackage {
         } catch (Throwable th) {
             log("!! hook " + C_C2M + "#" + M_SRHDR + " 失败 " + th);
             return false;
+        }
+    }
+
+    /**
+     * 强制 Pe.b.m2() → true，堵死 hdrType 公式 (m2() && isSR()) 的左半短路。
+     * 旧 level2 只强制 isSR()，m2()=false 时 isSR() 根本不被调用 → type1 静默溜进去
+     * （10-08 卡死实证）。m2() 是能力门单例、拿不到 module，所以用 sForceHdr5 瞬时
+     * flag（只在 Camera2Module$c.a() 算 hdrType 那几行期间为 true）限定作用域，
+     * 不污染其它模式/其它调用点的 m2() 判定。
+     */
+    private static boolean hookM2Capability() {
+        try {
+            XposedHelpers.findAndHookMethod(C_M2, sCl, M_M2, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                    try {
+                        if (sForceHdr5 && sForce5) {
+                            p.setResult(Boolean.TRUE);
+                        }
+                    } catch (Throwable th) {
+                        err(th);
+                    }
+                }
+            });
+            log("hook " + C_M2 + "#" + M_M2 + " ok");
+            return true;
+        } catch (Throwable th) {
+            log("!! hook " + C_M2 + "#" + M_M2 + " 失败 " + th);
+            return false;
+        }
+    }
+
+    /**
+     * 挡住 Camera2Module$c.a(int) 的进入分支（i9==1 →算 hdrType 下发给 HAL）。
+     * 这是 mutexModePicker.e(1) 之后所有进入路径的**共同汇聚点**：
+     *   路径① p6.b.onHdrSceneChanged → .e(1)  （已被 hookHdrSceneChanged 挡在上游）
+     *   路径② p6.b.h("normal")       → .e(1)  （绕过 onHdrSceneChanged，此前没挡住）
+     *   以及任何其它直接 .e(1) 的调用方。
+     *
+     * 只在 AI帮拍 里、只把 i9 从 1 改成 0：跳过 hdrType 下发（不切 HDR usecase、
+     * 不会 bad state/sigabort），但保留末尾 updateMfnr/updateSwMfnr（i9==0 会跳过
+     * 两个 if 分支、仍执行到方法尾）。mutexModePicker 已把 b 置 1 造成的短暂不一致，
+     * 会在下一次 onHdrSceneChanged(false) 的退出分支里自愈（发 hdrType=0 对 HAL 是空操作）。
+     *
+     * 每次进入都打独立诊断日志 —— 若 AI帮拍 里始终看不到 i9=1，说明崩溃不走 HDR 进入，
+     * 需另查（buffer/CDSP/离线HDR 路线）。
+     */
+    private static void hookMutexChokepoint() {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.android.camera.module.Camera2Module$c", sCl,
+                    "a", int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                            try {
+                                if (p.args == null || p.args.length < 1) {
+                                    return;
+                                }
+                                int i9 = (p.args[0] instanceof Integer)
+                                        ? ((Integer) p.args[0]).intValue() : -1;
+                                Object outer = outerModule(p.thisObject);
+                                if (outer == null) {
+                                    return;
+                                }
+                                Object v = XposedHelpers.callMethod(outer, "getModuleIndex");
+                                if (!(v instanceof Integer)
+                                        || ((Integer) v).intValue() != MODE_AI) {
+                                    return;
+                                }
+                                chokeLog("Camera2Module$c.a(i9=" + i9 + ") mode=168");
+                                if (sBlockEntry) {
+                                    // level1 / level2 兜底：把进入档位 1 改成 0，
+                                    // 跳过 hdrType 下发（不切 HDR usecase、不会
+                                    // bad state/sigabort），保留尾部 updateMfnr。
+                                    if (i9 == 1) {
+                                        p.args[0] = 0;
+                                        chokeLog("  ↳ 挡下 hdrType 下发（不切 HDR usecase，保留 updateMfnr）");
+                                    }
+                                } else if (sForce5) {
+                                    // level2 主档：放行进入，只在算 hdrType 的 i9==1
+                                    // 那次给 m2() 钩子打瞬时 flag → m2()+isSR() 双 true
+                                    // → hdrType 必为 5（AI帮拍 0 崩溃那条路）。
+                                    sForceHdr5 = (i9 == 1);
+                                    if (i9 == 1) {
+                                        chokeLog("  ↳ 放行进入 + 双强制 m2()/isSR() → hdrType=5");
+                                    }
+                                }
+                            } catch (Throwable th) {
+                                err(th);
+                            }
+                        }
+
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                            // .a() 整体跑完就复位：m2() 的强制只在这一次进入档位调用
+                            // 期间生效，.a() 之外的 m2() 判定全部走原生逻辑。
+                            // （注：本次调用尾部的 updateMfnr/updateSwMfnr 仍在 flag
+                            //   窗口内，属 AI帮拍 单模式内的轻微副作用，可接受。）
+                            sForceHdr5 = false;
+                        }
+                    });
+            log("hook Camera2Module$c#a ok");
+        } catch (Throwable th) {
+            log("!! hook Camera2Module$c#a 失败 " + th);
+        }
+    }
+
+    /** 从 Camera2Module$c 实例里取回外部 Camera2Module（按「能响应 getModuleIndex」认字段，首扫缓存） */
+    private static Object outerModule(Object inner) {
+        try {
+            if (inner == null) {
+                return null;
+            }
+            Field f = sChokeOuterField;
+            if (f == null) {
+                Field[] fs = inner.getClass().getDeclaredFields();
+                for (int i = 0; i < fs.length; i++) {
+                    Field c = fs[i];
+                    try {
+                        c.setAccessible(true);
+                        Object val = c.get(inner);
+                        if (val == null) {
+                            continue;
+                        }
+                        Object r = XposedHelpers.callMethod(val, "getModuleIndex");
+                        if (r instanceof Integer) {
+                            sChokeOuterField = c;
+                            return val;
+                        }
+                    } catch (Throwable ignore) {
+                    }
+                }
+                return null;
+            }
+            f.setAccessible(true);
+            return f.get(inner);
+        } catch (Throwable th) {
+            return null;
+        }
+    }
+
+    /** 诊断日志（独立预算，避免被 onHdrSceneChanged 阻断刷屏吃光） */
+    private static void chokeLog(String msg) {
+        synchronized (HdrFix.class) {
+            if (sChokeBudget <= 0) {
+                return;
+            }
+            sChokeBudget--;
+            log("choke: " + msg + (sChokeBudget == 0 ? "  (choke 日志已静音)" : ""));
         }
     }
 

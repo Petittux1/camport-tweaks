@@ -7,7 +7,7 @@
 |---|---|
 | **传奇一瞬**（M3 / M9 / M10R） | ✅ 预览 + 成片都通 |
 | **实况运镜**（mode 231 自由 / 主角 / 红毯） | ✅ 能用，⚠️ 成片观感不理想（见下） |
-| **AI帮拍**（mode 168 / `0xa8`） | ✅ 不再崩溃（`fd=0` 自 10-02 18:29 起归零），⚠️ 预览断流「卡死」10-09 已定位=管线 wedge（App 侧健康），`diag.stallheal=1` + `ai.hdrfix=1` 对症（见 §4b） |
+| **AI帮拍**（mode 168 / `0xa8`） | ✅ 亮场卡死 + sigabort 已修（10-09 根治：`ai.hdrfix=2` 放行进入 + 强制 `hdrType=5`，实测 0 崩溃；见 §4b） |
 | **智能构图** | ✅ 预览引导环 + 连续自动变焦（10-04 合成 `autoCropData` 喂 v2 通路，用户确认可用） |
 | **调色盘** | ✅ 拍照模式所见即所得（10-04 `PaletteFix`，用户确认可用） |
 
@@ -36,7 +36,7 @@ legend_src/com/pudding/camport/hooks/
     Mode231Probe.java     实况运镜：开相机 id / 流配置探针
     LegendaryColor.java   传奇一瞬：M3/M9/M10R -> CubeLut 滤镜映射
     SmartCompFix.java     智能构图：ai.smartcomp 档位门（0..8，8=v2 引导环 + 合成 autoCropData）
-    HdrFix.java           AI帮拍：自动HDR互斥阻断 ai.hdrfix
+    HdrFix.java           AI帮拍：放行HDR互斥+强制 hdrType=5 ai.hdrfix
     PaletteFix.java       调色盘：拍照模式成片所见即所得 palette.*
 build_legend.sh           javac -> d8 -> zip -> apksigner -> pm install -r
 config.example.conf       全部可调键（拷到设备 config.conf 用）
@@ -130,10 +130,11 @@ palette.force=1         palette.inject=1        palette.dup=1
 palette.probe=1         palette.withfilter=1
 
 # ---- AI帮拍 / 自动HDR 互斥 ----
-ai.hdrfix=1             1=进入 AI帮拍 时阻断「自动HDR」互斥抢模式（proven 主档）
-                         2=不阻断+强制超分HDR type5 —— 有 m2() 短路漏洞：
-                         `(m2() && isSR())?5:1` 在 m2()=false 时 isSR 不被调用，
-                         type1 静默进入且无日志（10-08 卡死实证），勿用
+ai.hdrfix=2             2=根治主档：放行进入 + 双强制 m2()&isSR() → hdrType=5
+                         （10-09 实测放行且 0 崩溃；两挂点任一失败自动退 1）
+                         1=兜底：进 AI帮拍 时阻断「自动HDR」互斥抢模式
+                         （10-09 证伪为主档：阻断后照样 SIGABRT，只作兜底）
+                         0=关
 
 # ---- 预览断流三级自愈（SmartCompFix 停帧看门狗）----
 diag.stallheal=1         ①≥1.5s 重发预览(零成本) → ②≥4s 且 MIVI空 才 flush
@@ -280,11 +281,19 @@ f40->f45  k=1.050 (0.121)                 指令 1.039
    → ②4s 且 MIVI 空才 `abortCaptures` → ③12s 强制 flush）。当年因假停帧误按关掉，
    假停帧根因已在 v0.15.0「真帧心跳」根修，10-09 重新打开。
    MIVI空 型 1.5s 即可救活；MIVI忙 型 ①×2 后等 ③@12s 强制 flush 兜底。
-2. `ai.hdrfix` 回 **1**（=2 撤下）：12/12 致死链是「AI帮拍 + 运行时进 HDR 互斥
-   (hdrType=1)」；=2 不挡进入、只把 type 强制成 5，但公式是
-   `(m2() && isSR()) ? 5 : 1` —— **m2() 为 false 时 isSR 根本不被调用，
-   type1 静默进入且一行日志都没有**（17:22 卡死现场正是零 hdrfix 日志）。
-   =1 无条件挡进入，不依赖任何短路条件。代价：AI帮拍 亮场不合并 HDR。
+2. `ai.hdrfix=2`（**10-09 根治，取代此前的 =1 阻断档**）：
+   - **=1 阻断档被实测证伪**：hdrfix=1 下 `Camera2Module$c.a(1)`（下发 hdrType 的
+     唯一入口）一次都没被调用、HDR 进入已彻底堵死，12:17/12:22 **照样** 同栈
+     `Fatal signal 6 ... camera.provider` —— 说明「挡住 HDR 进入」不是病因方向，
+     HAL 在亮场照样楔死（帧先停 → `PrepareForRecovery` 连败 6 次 → abort）。
+   - **=2 = 放行进入 + 双强制 hdrType=5**：同时挂 `isSuperResolutionHDR()` 与
+     `Pe.b.m2()` 为 true（旧 =2 只强制前者，`(m2() && isSR())` 在 m2()=false 时
+     短路 → type1 静默溜进去，10-08 卡死的漏洞），使公式必得 5。依据作者 10-02
+     统计：AI帮拍 + hdrType=1 → 12/12 崩，hdrType=5 → 0 崩。
+   - **实测（10-09 13:04 起）**：`choke: i9=1` 反复出现且每次都 `↳ 放行进入 +
+     双强制 → hdrType=5`，新 APK 起 provider SIGABRT 归零，用户确认「不卡了」。
+   - 安全兜底：两个挂点任一失败 → 自动退回 =1 阻断语义，绝不放 hdrType=1 出去。
+   代价：AI帮拍 亮场走超分HDR（type5），HDR 仍然生效。
 
 ### 5. 智能构图：✅ 10-04 已修好（走 v2，端侧合成数据）
 
