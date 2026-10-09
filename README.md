@@ -7,7 +7,7 @@
 |---|---|
 | **传奇一瞬**（M3 / M9 / M10R） | ✅ 预览 + 成片都通 |
 | **实况运镜**（mode 231 自由 / 主角 / 红毯） | ✅ 能用，⚠️ 成片观感不理想（见下） |
-| **AI帮拍**（mode 168 / `0xa8`） | ✅ 不再崩溃（`fd=0` 自 10-02 18:29 起归零），⚠️ 成因未定位 |
+| **AI帮拍**（mode 168 / `0xa8`） | ✅ 不再崩溃（`fd=0` 自 10-02 18:29 起归零），⚠️ 预览断流「卡死」10-09 已定位=管线 wedge（App 侧健康），`diag.stallheal=1` + `ai.hdrfix=1` 对症（见 §4b） |
 | **智能构图** | ✅ 预览引导环 + 连续自动变焦（10-04 合成 `autoCropData` 喂 v2 通路，用户确认可用） |
 | **调色盘** | ✅ 拍照模式所见即所得（10-04 `PaletteFix`，用户确认可用） |
 
@@ -130,7 +130,15 @@ palette.force=1         palette.inject=1        palette.dup=1
 palette.probe=1         palette.withfilter=1
 
 # ---- AI帮拍 / 自动HDR 互斥 ----
-ai.hdrfix=1             1=进入 AI帮拍 时阻断「自动HDR」互斥抢模式
+ai.hdrfix=1             1=进入 AI帮拍 时阻断「自动HDR」互斥抢模式（proven 主档）
+                         2=不阻断+强制超分HDR type5 —— 有 m2() 短路漏洞：
+                         `(m2() && isSR())?5:1` 在 m2()=false 时 isSR 不被调用，
+                         type1 静默进入且无日志（10-08 卡死实证），勿用
+
+# ---- 预览断流三级自愈（SmartCompFix 停帧看门狗）----
+diag.stallheal=1         ①≥1.5s 重发预览(零成本) → ②≥4s 且 MIVI空 才 flush
+                         → ③≥12s 强制 flush。护栏：前台判据/停帧前健康采样/
+                         冷却限次/30s 上限；假停帧根因已在 v0.15.0 真帧心跳根修
 ```
 
 ---
@@ -252,6 +260,31 @@ f40->f45  k=1.050 (0.121)                 指令 1.039
 
 > `build.DEVICE=madrid`、`block.msg=11`、`pixel.fix`、`cvtype.natural`、`enable_mode`
 > 都是**原模块预设**，不是本仓库的 delta。
+
+### 4b. AI帮拍「用着用就突然卡死」——预览断流 wedge（10-08/09 定位）
+
+**App 侧全程健康，是管线不出帧。** 两场现场的线程转储（`dumpStuck`）：
+
+- 10-08 17:22:17 切进 168 → 1.5s 后 `停帧(MIVI忙)` 一路涨到 11.6s → 进程死亡重启；
+  随后 provider 会话 `close()` 卡 `CameraBufferManager::Destroy →
+  ConcurrentQueue::Dequeue()` **48 秒** → ANR（`/data/anr/anr_2026-10-08_17-23-19-968`：
+  cameraserver → provider binder 阻塞链 + 多个 AI 推理线程在 `libcdsprpc ioctl`）。
+- 10-09 00:25 `停帧(MIVI空)` 29.8s 后自愈（重复请求丢失型）。
+
+两场的 `[main/RUNNABLE] nativePollOnce`、全部相机线程 WAITING/idle ——
+**没有任何线程被卡 = HAL/管线 wedge，不是 Java 死锁**。
+
+**两个对症杠杆（都是纯配置，force-stop 生效）：**
+
+1. `diag.stallheal=1`：模块自带三级停帧自愈（①1.5s `resumePreview` 零成本重发
+   → ②4s 且 MIVI 空才 `abortCaptures` → ③12s 强制 flush）。当年因假停帧误按关掉，
+   假停帧根因已在 v0.15.0「真帧心跳」根修，10-09 重新打开。
+   MIVI空 型 1.5s 即可救活；MIVI忙 型 ①×2 后等 ③@12s 强制 flush 兜底。
+2. `ai.hdrfix` 回 **1**（=2 撤下）：12/12 致死链是「AI帮拍 + 运行时进 HDR 互斥
+   (hdrType=1)」；=2 不挡进入、只把 type 强制成 5，但公式是
+   `(m2() && isSR()) ? 5 : 1` —— **m2() 为 false 时 isSR 根本不被调用，
+   type1 静默进入且一行日志都没有**（17:22 卡死现场正是零 hdrfix 日志）。
+   =1 无条件挡进入，不依赖任何短路条件。代价：AI帮拍 亮场不合并 HDR。
 
 ### 5. 智能构图：✅ 10-04 已修好（走 v2，端侧合成数据）
 
