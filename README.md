@@ -379,6 +379,44 @@ add(v1 拦截器 s6.r0 = SmartCompositionSimpleASD);      // v1 = ASD 代
 > ④ 完全绕开 HAL 做软件裁剪。
 </details>
 
+### 5b. 人像模式（171）：无模糊直切已修；平滑变焦**定案：做不到**（10-10）
+
+**已修并已验证的**（都是 `ZoomAddFix` + `ProZoomAnimFix`，随 v6/v7 构建发布）：
+
+| 现象 | 修法 |
+|---|---|
+| 点「5」解析成 2.6 | `ZoomRatioToggleView.m` 点按以**显示表 R** 为准（`视图.m(171,2) 2.6 → 5.0`） |
+| `ArrayIndexOutOfBoundsException: length=3; index=4` 闪退 | `i.J(Z,Z,F,I)` 越界夹取，按模式记 `sGearLen`，只在真越界时夹到 `长度-1` |
+| 切镜半秒模糊 | `Ph.b.e()` 里 `StartControl.setNeedBlurAnimation(true)` → 强制 `false`，**只在 `getModuleIndex()==171` 时生效**；`w9 → Camera.i8` 的 close→open 重启**原样保留** |
+| 切换卡 | 上面那条同时解决 —— 重启保留才是快的 |
+
+**定案：人像的平滑/非线性变焦动画做不到**，不是写法问题。三条路 10-10 全部实测撞死：
+
+| 路径 | 做法 | 实测结果 |
+|---|---|---|
+| A 不重启 | `j9.z.L8` → `setResult(false)`，走 `y0` 尾巴由 HAL SAT 无缝切 | **卡住**。`w9 mode=171` 0 次（重启确实绕开了）但**镜头根本没换过去**，15s 零日志 + 连点无反应。→ 之前「特别慢」就是 `L8=false` 本身，与渐变帧数无关 |
+| B 推迟重启 | 动画期间拦 `w9`，结束补发 | **死锁**。`w9` 是在点按调用栈里同步发起、app 就地等完成的；拦掉即同步死等，补发任务排在同一主线程上永远轮不到（实测拦 27 次、补发 0 次）→ 「完全没反应 + 卡住」 |
+| C 放行重启 | 只做动画、`w9` 照常 | 第 0 帧就重启，动画被完全盖掉；且动画**每帧**各自触发一次 `w9`（实测 180ms 内 3 次 close→open），比不加更糟 |
+
+> 结构性根因：人像必须走 `K7 → w9 → Camera.i8` 的**硬重启**才能换镜头，而这个重启
+> **既不能省略（A）、不能延迟（B）、也不能被动画穿过（C）**。原生快正是因为 `L8=true`
+> 让 `y0` 直接早退、压根不走逐帧推 zoom。
+>
+> 叠加「非线性换镜变焦」一节的根因定案 2：18PM 的顺滑来自 HAL 独有的
+> `smoothZoomV2`，**本机固件 `*.so` + 相机 APK 全文检索零命中，改配置永远开不出来**。
+
+**开关**（全部默认关闭 / 不影响 167，改完重启相机即可，无需重编）：
+
+```
+legend.portrait_anim=0        # 1=人像点按走 Ns 非线性渐变（会踩墙 B/C，别开）
+legend.portrait_seamless=0    # 1=L8→false 走 SAT 无缝切（会踩墙 A，别开）
+legend.proanim_anim=167,171   # 哪些模式允许「点按直跳→渐变」重定向
+legend.proanim_modes=167      # 哪些模式开渐变**抑制窗口**（拦 J9/w9）——171 绝不能进
+```
+
+> ⚠ `proanim_modes` 加 171 = 把切镜拦死 = 卡 10 秒。`proanim_anim` 和
+> `proanim_modes` 是**两个独立门控**，前者只管动画、后者才管抑制，别合并。
+
 ### 6. 还没解决
 
 - `Logical CameraId = 15 is invalid` / `Out of bound camera 15`
