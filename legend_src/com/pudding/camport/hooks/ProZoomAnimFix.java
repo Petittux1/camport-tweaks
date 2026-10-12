@@ -170,8 +170,26 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
 
     private static ClassLoader sCl;
     private static boolean sInstalled;
-    /** ⑨：正处于 Ph.b.e() 内且模式是人像(171) → 压掉模糊动画。 */
-    private static volatile boolean sInPortraitSwitch;
+    /** ⑨：正处于 Ph.b.e() 内时，当前 moduleIndex（null = 不在切镜里）。 */
+    private static volatile Integer sSwitchMode;
+
+    /**
+     * ⑨：哪些模式切镜时压掉模糊动画（`setNeedBlurAnimation true→false`）。
+     *
+     * **重启一律保留**，只去掉那层糊 —— 因为 close→open 重启是这些模式
+     * 唯一切得动镜头的路径（见 ⑦/第六层坑的取证：拦掉就是卡死）。
+     *
+     * 默认 171（人像）；`legend.noblur_modes=167,171` 把专业模式也纳入。
+     * 专业模式 1↔0.7 的半秒模糊来自同一条链：
+     *   J9(switchLensInPro) f2&lt;1.0 → str="ultra"
+     *     → setComponentValue(167,"ultra") → w9() → Ph.b.e(resetType=128)
+     *     → setNeedBlurAnimation(true)  ← 这一层就是「半秒模糊」
+     * 0.7 必须切组件（不切 = HAL clamp &lt;1.0，预览永远 1x，v4 已实测），
+     * 所以只能留重启、去糊。
+     *
+     * 拍照模式 163 绝不加入（实测本来就完美，不许碰）。
+     */
+    private static volatile Set<Integer> sNoBlurModes = parseModes("171");
 
     private static volatile boolean sCfgDone;
     private static volatile boolean sEnabled = true;
@@ -227,6 +245,55 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
 
     /** v4：渐变窗口截止时间（uptimeMillis）。窗口内抑制 J9 换镜头。 */
     private static volatile long sRampUntil;
+    /**
+     * 167 走原生 Ns 时，补发 J9 要用的**真档位目标**（0 = 不补发）。
+     *
+     * 为什么不能用动画帧值：Kr.i.n 用 e.b() 映射、H4.U 用 Kr.i.f.b() 反解，
+     * 两者不是同一条曲线 → 第 1 帧反解出来是 2.6417675 而不是 cur=2.6。
+     * 真目标只能从 Kr.i.n(from, to) 的 **to** 拿（点 5x = 5.0）。
+     */
+    private static volatile float sTailTarget;
+    /**
+     * 动画结束到「允许切镜」之间的尾巴（ms）。
+     *
+     * 10-12 对账（2.6→5.0 那次，见 proanim.log 12:09:19）：
+     *   Ms 开窗 = sMs(100) + 150 = **固定 250ms**，而实际动画只有 **124ms**
+     *   → 动画跑完后干等 186ms 才补发 J9 → close→open。
+     * 死等时长 = sMs + 150 + 60 − 实际动画，**是个会变的差值**：
+     * 动画越短、干等越长，就出现「有时候明显卡 0.X 秒」。
+     *
+     * 改成滚动窗口：每个动画帧都把 sRampUntil 推到 now + tail，
+     * 帧一停（16ms 间隔断掉）→ tail ms 后立刻补发。
+     * 于是死等恒等于 tail，跟动画快慢无关。
+     */
+    private static volatile long sTail = 80L;
+    /** 正在补发 J9 的调用里 → 跳过窗口判定，否则补发会被自己再拦死 */
+    private static volatile boolean sInReplay;
+    /** 逐帧取证日志的节流（一次渐变最多 1 行，见下方 Js 钩子里的说明） */
+    private static volatile long sLastJ9Log;
+    private static volatile long sLastY0Log;
+    /**
+     * 跨镜头档位直接切镜、不放渐变（legend.proanim_skipswitch，默认开）。
+     *
+     * 10-12 实测（proanim.log 13:18:56，legend.telefix=0）：
+     *   1→0.7：Ds 到 w9 隔 282ms = 渐变 100ms + tail 170ms + ~10ms，
+     *   而这 100ms 的渐变帧是 1.0→0.949→0.901→0.85→0.799，
+     *   **全部低于 wide 的下限 1.0，HAL 直接 clamp，画面一动不动**。
+     *   也就是说这档的渐变从头到尾就没显示过，纯粹在给后面那次
+     *   close→open 白拖 270ms（用户原话「1到0.7基本都没动画」）。
+     *   0.7→1 同理：在 ultra 上渐变到 1.0 就必须切回 wide。
+     *
+     * 而 5→2.6 / 1↔2.6 这类**不跨镜头**的档位，渐变是真的看得见，
+     * 一行都不该动（那是 v0.16.0 的成果）。
+     *
+     * 判据取「有没有跨过 1.0 这条线」：跨过去就等于 wide↔ultra，
+     * J9 必然 setComponentValue + w9 → close→open，躲不掉。
+     * 于是跳过渐变、放行原生直跳 → 立刻切镜，观感 ~770ms → ~500ms，
+     * 而且**视觉上零损失**（本来就没显示过）。
+     *
+     * kill switch：legend.proanim_skipswitch=0 → 回到「渐变+尾巴+重启」。
+     */
+    private static volatile boolean sSkipSwitch = true;
 
     // ===== v6：人像(171)改成「窗口内只跳过、末帧一次性推」 =====
     //
@@ -248,6 +315,7 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
     private static volatile boolean sFinalScheduled; // 末帧任务已排
     private static volatile boolean sFinalApply;     // 放行这唯一一次 y0
     private static volatile long sLastFrameLog;      // 帧日志节流（log 每次 flush FUSE）
+    private static volatile long sLastAnimLog;       // 「Ds 内动画帧放行」日志节流
     private static Runnable sFinalTask;              // 末帧一次性推 zoom
 
     // ===== v5：窗口内被拦、但涉及 <1.0（超广角）的最后一次 J9，窗口后补发 =====
@@ -269,6 +337,11 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
         float target;         // 被拦的直跳目标
         int action;           // 被拦直跳的 action
         int hits;             // 本 Ds 内拦下几次 Js
+        // 167 点按走的是原生 Ns 动画（Ds 内没有直跳 Js，见 fromAnimFrame）。
+        // Kr.i.n(from, **to**) 的 to 才是真档位目标（点 5x = 5.0），
+        // 而动画第 1 帧反解出来是 2.6417675 —— 两者差很远，别拿帧值当目标。
+        float nativeTarget;   // 原生 Ns 的目标，0 = 本次 Ds 没走 Ns
+        long nativeDur;       // 原生 Ns 的实际时长(ms)
 
         DsState(int mode, float cur) {
             this.mode = mode;
@@ -313,6 +386,35 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
     }
 
     /**
+     * 这次 Js 是不是「动画帧」（来自 onAnimationUpdate），而不是 Ds 里那句
+     * 直跳 `Js(f11, f1894P)`。
+     *
+     * 10-12 定位 2.6→5「完全没反应」时确认的硬事实：
+     * mode 167 的 Ds 走的是
+     *     if (As() && vs(mode)) { if (!f1907n.isRunning()) Ns(f11, i10, z); }
+     * 这条分支里**根本没有**直跳 Js —— Ns 内唯一的 Js 出处就是
+     * H4.U.onAnimationUpdate（逐帧反解 Kr.i.f 后下发）。
+     * 旧⑤号钩子把 Ds 栈内的第一个 Js 一律当成「档位目标」，于是点 5x 时
+     * 抓到的是动画第 1 帧 2.6417675（真目标是 5.0），随后 Os() 把原生
+     * 2.6→5.0 的动画掐掉、自己拿 2.6418 当目标 3ms 走完 → 完全没反应。
+     *
+     * 人像(171)/跨 1.0/拍照(163) 的直跳是 Ds 直接调 Js，栈里没有
+     * onAnimationUpdate，不受这条影响。
+     */
+    private static boolean fromAnimFrame() {
+        try {
+            StackTraceElement[] s = Thread.currentThread().getStackTrace();
+            for (int i = 0; i < s.length && i < 30; i++) {
+                if ("onAnimationUpdate".equals(s[i].getMethodName())) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    /**
      * v7：把 Ds 内被拦下来的那次「直跳 Js」换成动画。
      *
      * 优先 Ns() —— 内部走 Kr.i.n()，时长按**非线性映射后**的倍率差算，
@@ -328,6 +430,29 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
      */
     private static void startAnim(Object p0obj, DsState st) {
         try {
+            // 跨 1.0 = wide↔ultra → J9 必然 setComponentValue + w9 → close→open。
+            // 该档渐变帧全落在目标镜头量程外（HAL clamp）→ 渐变根本看不见，
+            // 只是给后面那次重启白拖 ~270ms。直接放行原生直跳、立刻切镜。
+            // 只对 proanim_modes 生效，并明确排除 171（人像成果不碰）。
+            if (sSkipSwitch && st.mode != 171
+                    && sModes.contains(Integer.valueOf(st.mode))
+                    && ((st.target < 1.0f) != (st.cur < 1.0f))) {
+                // 必须先自己出栈：本方法跑在 Ds 的 afterHookedMethod 里，
+                // 而 sInDs.remove() 在它下面的 finally 里、比这里晚 —— 不出栈
+                // 的话重发的 Js 会被④钩子当成「同次点按第 N 次直跳」再吞掉。
+                // 这也正是本方法里原有那条「退回原生直跳」兜底路径的死因：
+                // 它一直只打日志、从没真的发出去过。
+                sInDs.remove();
+                sRampUntil = 0L;
+                sHandler.removeCallbacks(sReplayTask);
+                sPending = false;
+                XposedHelpers.callMethod(p0obj, "Js",
+                        Float.valueOf(st.target),
+                        Integer.valueOf(st.action));
+                log("→ 跨镜头档位（" + st.cur + "→" + st.target
+                        + "）跳过渐变直接切镜（该档渐变帧全在镜头量程外、看不见）");
+                return;
+            }
             boolean nonLinear = false;
             try {
                 nonLinear = ((Boolean) XposedHelpers.callStaticMethod(
@@ -371,6 +496,10 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
             long dur = sLastAnimDur > 0L ? sLastAnimDur : 160L;
             long now = android.os.SystemClock.uptimeMillis();
             sAnimUntil = now + dur + 60L;
+            // before 钩子留的是 1.5s 临时窗口，这里按真实时长收窄；
+            // 补发用真目标（= 被拦下来的档位值）。
+            sRampUntil = now + dur + sTail;
+            sTailTarget = st.target;
             log("→ 直跳已拦 Js(" + st.target + ")，改走 Ns 非线性渐变 mode="
                     + st.mode + " cur=" + st.cur + " dur=" + dur
                     + "ms，切镜延到 +" + (dur + 90L) + "ms 只切一次");
@@ -523,6 +652,13 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
                                 }
                                 float cur = ((Float) XposedHelpers.getObjectField(
                                         p.thisObject, "l")).floatValue();
+                                sTailTarget = 0f;   // 清上一轮残留，别补错目标
+                                // ★ 窗口必须在 **before** 就 arm：向下切（5→2.6/1.0）
+                                //   时组件一进 Ds 就变了，原生立刻 w9 close→open，
+                                //   把刚起的动画当场掐掉（实测只跑得到第 1 帧）。
+                                //   after 钩子再按真实时长精化；没走 Ns 就清 0。
+                                sRampUntil = android.os.SystemClock
+                                        .uptimeMillis() + 1500L;
                                 sInDs.set(new DsState(mode, cur));
                                 log("Ds(idx=" + p.args[0] + ", action="
                                         + p.args[1] + ") cur=" + cur
@@ -545,6 +681,8 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
                                     if (st.msRan) {
                                         log("→ 直跳已拦 Js(" + st.target
                                                 + ")，原 Ms 接管渐变");
+                                        // 原生 Ms 自己在跑，before 的临时窗口没用
+                                        sRampUntil = 0L;
                                     } else if (Math.abs(st.cur - st.target)
                                             > 0.001f) {
                                         // v7：优先 Ns（非线性曲线渐变，其它
@@ -553,7 +691,37 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
                                     } else {
                                         log("→ 直跳已拦 Js(" + st.target
                                                 + ") 同值无需渐变");
+                                        sRampUntil = 0L;
                                     }
+                                } else if (st.nativeTarget > 0f
+                                        && Math.abs(st.nativeTarget
+                                                - st.cur) > 0.001f) {
+                                    // ★ 167 点按走原生 Ns，我们只是把动画帧放行
+                                    //   （见 fromAnimFrame）。但光放行不够：
+                                    //   原生 ramp 爬到 ~4.1 时 J9 就判组件变了 →
+                                    //   w9 close→open **把动画打断**，倍率停在
+                                    //   4.5 爬不到 5.0 →「2.6 到 5 不行」。
+                                    //   处置：把切镜窗口 arm 到「动画跑完」，
+                                    //   ramp 期间 J9 被⑥压住不 w9；尾帧 +tail
+                                    //   用**真目标**(Kr.i.n 的 to = 5.0)补一次
+                                    //   J9，那时倍率已到 5.0，只切一次且不打断。
+                                    long durN = st.nativeDur > 0L
+                                            ? st.nativeDur : 160L;
+                                    long nowN = android.os.SystemClock
+                                            .uptimeMillis();
+                                    sRampUntil = nowN + durN + sTail;
+                                    sTailTarget = st.nativeTarget;
+                                    scheduleReplay();
+                                    log("→ 原生渐变放行 mode=" + st.mode
+                                            + " cur=" + st.cur + " 真目标="
+                                            + st.nativeTarget + " dur=" + durN
+                                            + "ms，切镜压到尾帧 +" + sTail
+                                            + "ms 只切一次");
+                                } else {
+                                    // 没走 Ns（同值点按 / 原生没起动画）：
+                                    // before 钙子的临时窗口必须清掉，否则后面
+                                    // 一次正常的切镜会被白压 1.5s。
+                                    sRampUntil = 0L;
                                 }
                             } catch (Throwable th) {
                                 log("!! Ds 补渐变失败 " + th);
@@ -603,6 +771,26 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
                                     // 不是直跳，放行并记脏账
                                     return;
                                 }
+                                if (fromAnimFrame()) {
+                                    // 动画帧 ≠ 直跳。见 fromAnimFrame() 注释：
+                                    // 167 的 Ds 只走 Ns，栈内第一个 Js 是动画
+                                    // 第 1 帧（2.6→5.0 时是 2.6417675），
+                                    // 当成档位目标就会 Os() 掐掉原生动画、
+                                    // 自己 3ms 走完 →「2.6 到 5 完全没反应」。
+                                    // 放行，让原生渐变自己跑到 5.0，末帧
+                                    // J9(→5.0) 才由 LensSwitchFix 的 ≥4.5
+                                    // 分流不强制 n1 → w9 真切长焦。
+                                    long nowAl = android.os.SystemClock
+                                            .uptimeMillis();
+                                    if (nowAl - sLastAnimLog >= 200L) {
+                                        sLastAnimLog = nowAl;
+                                        log("  · Ds 内动画帧 Js(" + tgt
+                                                + ") 放行（非直跳，原生渐变"
+                                                + "继续）mode=" + st.mode
+                                                + "  < " + stackHint());
+                                    }
+                                    return;
+                                }
                                 st.hits++;
                                 p.setResult(null);
                                 if (st.suppressed) {
@@ -641,9 +829,22 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
                         protected void afterHookedMethod(MethodHookParam p)
                                 throws Throwable {
                             try {
+                                ValueAnimator vaAnim = (ValueAnimator) p
+                                        .getResult();
                                 if (Boolean.TRUE.equals(sInNs.get())) {
-                                    sLastAnimDur = ((ValueAnimator) p
-                                            .getResult()).getDuration();
+                                    sLastAnimDur = vaAnim.getDuration();
+                                    return;
+                                }
+                                // ★ 原生**自己**起的 Ns（167 点按档位走这条）。
+                                //   Kr.i.n(from, **to**) 的 to 才是真档位目标
+                                //   （点 5x = 5.0），而动画第 1 帧反解出来是
+                                //   2.6417675。记进 DsState，尾帧补发要用。
+                                DsState stN = sInDs.get();
+                                if (stN != null && p.args != null
+                                        && p.args.length == 2) {
+                                    stN.nativeTarget = ((Float) p.args[1])
+                                            .floatValue();
+                                    stN.nativeDur = vaAnim.getDuration();
                                 }
                             } catch (Throwable ignore) {
                             }
@@ -664,30 +865,29 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
                             try {
                                 long now = android.os.SystemClock
                                         .uptimeMillis();
-                                if (now < sRampUntil) {
-                                    // v5：涉及 <1.0（要切超广角）的这次记账，
-                                    // 窗口结束后补发，否则 0.7 永远到不了
-                                    float fPrev = ((Float) p.args[0])
-                                            .floatValue();
-                                    float fCurr = ((Float) p.args[1])
-                                            .floatValue();
-                                    boolean ultra = fPrev < 1.0f
-                                            || fCurr < 1.0f;
-                                    if (ultra) {
-                                        sPf = fPrev;
-                                        sPf2 = fCurr;
-                                        sPi = ((Integer) p.args[2]).intValue();
-                                        sPi2 = ((Integer) p.args[3]).intValue();
-                                        sPa0 = p.args[4];
-                                        sPending = true;
-                                        scheduleReplay();
-                                    }
-                                    p.setResult(Boolean.FALSE);
+                                if (sInReplay || now >= sRampUntil) {
+                                    return;   // 补发时 / 窗口外：原样放行
+                                }
+                                float fPrev = ((Float) p.args[0])
+                                        .floatValue();
+                                float fCurr = ((Float) p.args[1])
+                                        .floatValue();
+                                sPf = fPrev;
+                                sPf2 = fCurr;
+                                sPi = ((Integer) p.args[2]).intValue();
+                                sPi2 = ((Integer) p.args[3]).intValue();
+                                sPa0 = p.args[4];
+                                sPending = true;
+                                // 滚动窗口：动画帧还在来就一直往后推，
+                                // 帧一停 → sTail ms 后补发（死等恒 = sTail）
+                                sRampUntil = now + sTail;
+                                scheduleReplay();
+                                p.setResult(Boolean.FALSE);
+                                if (now - sLastJ9Log >= 200L) {
+                                    sLastJ9Log = now;
                                     log("抑制换镜头 J9(" + p.args[0] + "→"
-                                            + p.args[1] + ") 渐变窗口内，余 "
-                                            + (sRampUntil - now) + "ms"
-                                            + (ultra ? "（<1.0 → 窗口后补发）"
-                                                    : ""));
+                                            + p.args[1] + ") 尾帧后 "
+                                            + sTail + "ms 补发");
                                 }
                             } catch (Throwable ignore) {
                             }
@@ -743,9 +943,19 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
                                 if (now >= sRampUntil) {
                                     return;
                                 }
-                                log("窗口内 y0(zoom=" + p.args[0] + ", action="
-                                        + p.args[1] + ") mode=" + mode
-                                        + " 余 " + (sRampUntil - now) + "ms");
+                                // 10-12：这行和「抑制换镜头 J9」都是**每帧一条**，
+                                // 一次点按 = 十几次主线程 FUSE flush。
+                                // v6 加取证时漏了节流，而 Js 那条早就因为
+                                // 「拖成卡顿」改成 200ms 节流了 —— 「有时候会卡
+                                // 一下下」有它一份。改成一次渐变最多 1 行。
+                                if (now - sLastY0Log >= 200L) {
+                                    sLastY0Log = now;
+                                    log("窗口内 y0(zoom=" + p.args[0]
+                                            + ", action=" + p.args[1]
+                                            + ") mode=" + mode
+                                            + " 余 " + (sRampUntil - now)
+                                            + "ms");
+                                }
                             } catch (Throwable th) {
                                 log("!! y0 失败 " + th);
                             }
@@ -859,32 +1069,34 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
                         protected void beforeHookedMethod(
                                 MethodHookParam p) throws Throwable {
                             try {
-                                sInPortraitSwitch = Integer.valueOf(171)
-                                        .equals(XposedHelpers.callMethod(
-                                                p.args[0], "getModuleIndex"));
+                                sSwitchMode = (Integer) XposedHelpers
+                                        .callMethod(p.args[0], "getModuleIndex");
                             } catch (Throwable ignore) {
-                                sInPortraitSwitch = false;
+                                sSwitchMode = null;
                             }
                         }
 
                         @Override
                         protected void afterHookedMethod(
                                 MethodHookParam p) throws Throwable {
-                            sInPortraitSwitch = false;
+                            sSwitchMode = null;
                         }
                     });
-            log("hook Ph.b.e(a0,boolean,int) ok（人像切镜不带模糊动画）");
+            log("hook Ph.b.e(a0,boolean,int) ok（切镜不带模糊动画 modes="
+                    + sNoBlurModes + "）");
             XposedHelpers.findAndHookMethod(clsSC, "setNeedBlurAnimation",
                     Boolean.TYPE, new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(
                                 MethodHookParam p) throws Throwable {
                             try {
-                                if (sInPortraitSwitch
+                                Integer m = sSwitchMode;
+                                if (m != null && sNoBlurModes.contains(m)
                                         && Boolean.TRUE.equals(p.args[0])) {
                                     p.args[0] = Boolean.FALSE;
-                                    logOnce(171,
-                                            "人像切镜 setNeedBlurAnimation true→false（重启保留，只去掉模糊）");
+                                    log("切镜 mode=" + m
+                                            + " setNeedBlurAnimation true→false"
+                                            + "（close→open 保留，只去掉那层糊）");
                                 }
                             } catch (Throwable ignore) {
                             }
@@ -957,26 +1169,40 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
                             return;
                         }
                         sPending = false;
+                        // ★ 167 原生渐变：尾帧必须用**真档位目标**（Kr.i.n 的
+                        //   to = 5.0）。用最后一个动画帧值（4.4x）补发的话，
+                        //   J9 判成 wide、组件没变 → 不 w9 → 还是没切长焦。
+                        float fTo = sTailTarget > 0f ? sTailTarget : sPf2;
+                        float fFrom = sTailTarget > 0f ? sPf2 : sPf;
+                        boolean bTrue = sTailTarget > 0f;
+                        sInReplay = true;
                         try {
-                            log("渐变窗口结束 → 补发 J9(" + sPf + "→" + sPf2
-                                    + ") 切超广角");
+                            log("尾帧 + " + sTail + "ms → 补发 J9(" + fFrom
+                                    + "→" + fTo + ") 换镜头判定"
+                                    + (bTrue ? " [真目标]" : "")
+                                    + "（组件没变则无操作）");
                             XposedHelpers.callStaticMethod(
                                     XposedHelpers.findClass("i9.e", sCl),
                                     "J9",
-                                    Float.valueOf(sPf), Float.valueOf(sPf2),
+                                    Float.valueOf(fFrom), Float.valueOf(fTo),
                                     Integer.valueOf(sPi),
                                     Integer.valueOf(sPi2), sPa0);
                         } catch (Throwable th) {
                             log("!! 补发 J9 失败 " + th);
+                        } finally {
+                            sInReplay = false;
+                            sTailTarget = 0f;
                         }
                     }
                 };
             }
             sHandler.removeCallbacks(sReplayTask);
-            long delay = sRampUntil + 60L - android.os.SystemClock
+            // 滚动窗口：sRampUntil 已被最后一个动画帧推到 now+tail，
+            // 所以这里就是「最后一帧之后 tail ms」，与动画快慢无关。
+            long delay = sRampUntil - android.os.SystemClock
                     .uptimeMillis();
-            if (delay < 40L) {
-                delay = 40L;
+            if (delay < 20L) {
+                delay = 20L;
             }
             sHandler.postDelayed(sReplayTask, delay);
         } catch (Throwable ignore) {
@@ -1240,20 +1466,32 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
                         sModes = parseModes(v);
                     } else if ("legend.proanim_ms".equals(k)) {
                         sMs = Long.parseLong(v.trim());
+                    } else if ("legend.proanim_tail_ms".equals(k)) {
+                        sTail = Long.parseLong(v.trim());
+                        if (sTail < 20L) {
+                            sTail = 20L;
+                        }
+                    } else if ("legend.proanim_skipswitch".equals(k)) {
+                        sSkipSwitch = !"0".equals(v.trim());
                     } else if ("legend.proanim_anim".equals(k)) {
                         sAnimModes = parseModes(v);
                     } else if ("legend.portrait_anim".equals(k)) {
                         sPortraitAnim = !"0".equals(v.trim());
                     } else if ("legend.portrait_seamless".equals(k)) {
                         sPortraitSeamless = "1".equals(v.trim());
+                    } else if ("legend.noblur_modes".equals(k)) {
+                        sNoBlurModes = parseModes(v);
                     }
                 } catch (Throwable ignore) {
                 }
             }
             log("cfg=" + chosen + " enabled=" + sEnabled + " modes="
-                    + sModes + " ms=" + sMs + " anim=" + sAnimModes
+                    + sModes + " ms=" + sMs + " tail=" + sTail
+                    + " skipswitch=" + sSkipSwitch
+                    + " anim=" + sAnimModes
                     + " portrait_anim=" + sPortraitAnim
-                    + " portrait_seamless=" + sPortraitSeamless);
+                    + " portrait_seamless=" + sPortraitSeamless
+                    + " noblur=" + sNoBlurModes);
         } catch (Throwable th) {
             log("ERROR " + th);
         } finally {

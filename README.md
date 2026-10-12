@@ -412,10 +412,36 @@ legend.portrait_anim=0        # 1=人像点按走 Ns 非线性渐变（会踩墙
 legend.portrait_seamless=0    # 1=L8→false 走 SAT 无缝切（会踩墙 A，别开）
 legend.proanim_anim=167,171   # 哪些模式允许「点按直跳→渐变」重定向
 legend.proanim_modes=167      # 哪些模式开渐变**抑制窗口**（拦 J9/w9）——171 绝不能进
+legend.proanim_ms=100         # Ms 渐变时长（mode 167 原生 setDuration(0)=单帧硬切，这里改写）
+legend.proanim_skipswitch=1   # 跨 1.0（wide↔ultra）跳过渐变直接切镜：那档渐变帧全落在
+                              # 目标镜头量程外被 HAL clamp，根本看不见，只是白拖 ~270ms
+legend.proanim_tail_ms=40      # 「补发 J9」延后量：**滚动窗口**（每来一帧往后推，
+                               # 帧一停 +tail 才补）→ 恒为「最后一帧之后 tail ms」。
+                               # 170 → 40 是 10-12 改的：动画 dur=118ms，尾上再干等
+                               # 170ms 才开始糊，那段空档把动画观感冲掉了
 ```
 
 > ⚠ `proanim_modes` 加 171 = 把切镜拦死 = 卡 10 秒。`proanim_anim` 和
 > `proanim_modes` 是**两个独立门控**，前者只管动画、后者才管抑制，别合并。
+
+> 🔑 **「Ds 栈内第一个 Js」不一定是直跳**（10-12 修 2.6→5「完全没反应」的根因）。
+> `Ds` 按模式分三条路：
+> ```
+> if (As() && vs(mode)) { if (!f1907n.isRunning()) Ns(f11, i10, z); }  // 167 走这条
+> else if (mode == 171) Js(f11, f1894P);                               // 人像：真直跳
+> else if (跨1.0 || mode == 163) Js(f11, f1894P);                      // 真直跳
+> ```
+> `Ns` 是**动画**，它内部唯一的 `Js` 出处是 `H4.U.onAnimationUpdate`（逐帧反解
+> `Kr.i.f` 后下发）。所以 167 的 `Ds` 里**根本没有直跳**，栈内第一个 `Js` 是动画
+> 第 1 帧——点 5x 时它是 `2.6417675` 而不是真目标 `5.0`。
+>
+> 旧版把它当档位目标 → `Os()` 掐掉原生 2.6→5.0 的动画 → 自己拿 2.6418 当目标
+> 3ms 走完 → 2.6 只挪到 2.6418、J9 目标 <4.5 被强制 n1 → 不 w9 → **完全没反应**。
+> （0.7/1.0/2.6 不受影响，是因为它们动画首帧 ≈ cur，被 `|tgt-cur|<0.01` 那道门放行了。）
+>
+> 修法：`fromAnimFrame()` 查栈里有没有 `onAnimationUpdate`，有就判定为动画帧、
+> **放行**，让原生渐变自己跑到目标；末帧 J9(→5.0) 才由 `LensSwitchFix` 的
+> `≥4.5` 分流不强制 n1 → `w9` 真切长焦。
 
 ### 6. 还没解决
 
@@ -512,13 +538,77 @@ files/camxoverridesettings.txt -> /odm/etc/camera/camxoverridesettings.txt   # �
 ```
 legend.lensswitch=1             # 换镜放行总开关
 legend.lensswitch_minzoom=1.5   # 只在倍率 ≥ 此值时放行（治低倍模糊）
-legend.telefix=0                # 长焦修复保持关闭，与 lensswitch 叠加会模糊半秒
 legend.zoompath=0               # 变焦路径探针（排障用，常开有开销）
 legend.zoomdur_ms=0             # 强制 app 变焦动画时长(ms)，0=不干预
 ```
 
 ⚠ 实测：`zoomdur_ms` 只驱动 app 侧 ramp（100ms→1 帧跳完、800ms→776ms，可客观复现），
 但**肉眼几乎无感**；2000ms 会让下面的小数字跟不上画面。**默认保持 0。**
+
+### 专业模式(167) 切镜定案（10-12）
+
+> ⚠ 旧文档写 `legend.telefix=0`「与 lensswitch 叠加会模糊半秒」——**已作废**。
+> 现行组合是 `telefix=1 + telefix_notk7=1 + satseamless=1`，实测 1↔0.7 与
+> 2.6↔5 都不糊不卡，别再照抄那句 0。
+
+**机制定案**：`n1(167)` 是官方 SAT 无缝切镜总开关，但**本机硬件能力位恒 false**
+（诊断 `G3=false l0=false`），SAT 框架层不工作。所以：
+
+- `1 ↔ 0.7` 的无缝**不是** SAT 给的，而是 **HAL 在 zoom 请求超出当前相机 range 时
+  自动切物理相机**（请求 0.7 → wide 覆盖不了 → 自动开 ultra）。铁证：SAT 全开期间
+  零条 `w9 放行`。
+- `2.6 → 5` 请求落在 wide 的 `[1,10]` 内 → 框架不切 → **必须**靠 `J9` 末帧走
+  `w9` 的 close→open 真切长焦。
+
+**分流判据**（`LensSwitchFix`）：用 `sInJ9` 区分 `n1` 的两个调用点 ——
+
+| 调用点 | 处置 |
+|---|---|
+| `J9` 内、且 `sJ9From≥tele_gate \|\| sJ9Target≥tele_gate` | **不强制**，让原值流下去 → `J9` 走 `w9` 真切镜 |
+| 其余（含 `onSATMasterIdChanged`） | 强制 `n1=true`，交给 HAL 自动切 ultra |
+
+### `legend.tele_gate`：2.6→5 的模糊从哪来、怎么去掉（10-12 定案）
+
+**为什么只有 2.6→5 会糊半秒**：补发的 J9 两端都 < 门槛时才强制 `n1`，于是
+
+- `5→2.6` 补发 `J9(2.6→2.6)` → 两端 < 4.5 → 强制 `n1=true` → **不 `w9`** → 无缝
+- `1↔0.7` 补发 `J9(1.0→1.0)`/`(0.7→0.7)` → 同上 → 无缝
+- `2.6→5` 补发 `J9(5.0→5.0)` → `5.0 ≥ 4.5` → **不强制** → `w9` 的 close→open → **糊半秒**
+
+`w9` 是**重启**（close→open），这半秒物理上躲不掉——**除非不重启**。
+把门槛调高到 99，`2.6→5` 也走强制 `n1=true` 这条路：`J9` 照常
+`setComponentValue("tele")`（telefix 已把 `q() -1 → 4` 映射成 ultraTele 5x），
+但**不 `w9`、不重启**，交给 SAT 框架内路由 —— 与 0.7↔1 无缝同一套机制。
+
+实测（`tele_gate=99`）：`w9 放行 mode=167` **0 条**、系统层 close→open **0 条**，
+2.6→5 无缝且倍率真到 5.0；其余转场**逐位不变**（它们的补发 J9 两端本来就 < 4.5，
+门槛调高不改变判定结果）。
+
+```text
+legend.tele_gate=99             # ★ 167 切长焦的倍率门槛（默认 4.5）
+                                #   =4.5 → 2.6→5 走 w9 真切长焦，有那半秒模糊
+                                #   =99  → 2.6→5 无缝无模糊（不重启，SAT 内路由）
+                                #   只影响「补发 J9 两端 ≥ 门槛」这一个判定，
+                                #   1↔0.7 / 5→2.6 的补发两端 < 门槛，改这个值不变。
+```
+
+> 一个诚实的边界：app 自身的 `Log.d("ZoomManager")` 在 release 构建里被剥离，
+> logcat 查不到 `setComponentValue ... lensType=`，所以**无法从日志 100% 断定**
+> 物理相机切到了 ultraTele。能确定的是**没有 close→open**。自查法：对着有细节的
+> 远处目标点 5x 拍一张放大看——真长焦锐利，数字裁切发糊。
+
+```
+legend.telefix=1                # 长焦 roleId 映射 -1→4（roleId23 ultraTele 5x）
+legend.telefix_notk7=1          # 反向作用域：只在**不在 K7 调用栈**时生效
+legend.telefix_standalone=0     # 1=脱离 J9 作用域独立生效（会误伤，保持 0）
+legend.telefix_global=0         # 1=对所有模式生效（保持 0，只治 167）
+legend.telefix_modes=167        # telefix 作用的模式
+legend.satseamless=1            # n1(167) 无缝分流总开关（上面那张表）
+legend.noblur_modes=171         # 这些模式的切镜**不要**模糊盖板（171=人像直切）
+                                # 167 的 5x 观感想改就写 167 或 167,171
+```
+
+> 所有键都是 `改 config.conf + force-stop 相机` 即生效，**不需要重编**。
 
 ---
 
