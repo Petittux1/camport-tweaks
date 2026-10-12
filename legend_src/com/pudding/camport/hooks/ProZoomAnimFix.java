@@ -208,7 +208,7 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
      */
     private static volatile Set<Integer> sAnimModes = parseModes("167,171");
     /** 人像动画开关：0 = 退回原生直跳。改配置 + 重启相机即可，不用重编。 */
-    private static volatile boolean sPortraitAnim = true;
+    private static volatile boolean sPortraitAnim = false;
 
     // ===== v7：人像「先渐变、动画结束再切一次镜」 =====
     //
@@ -266,7 +266,13 @@ public final class ProZoomAnimFix implements IXposedHookLoadPackage {
      * 帧一停（16ms 间隔断掉）→ tail ms 后立刻补发。
      * 于是死等恒等于 tail，跟动画快慢无关。
      */
-    private static volatile long sTail = 80L;
+    /**
+     * 默认 **40L**（v0.18.2 固化已验证值，配置有键则以文件为准）。
+     * 补发是**滚动窗口**——每来一帧往后推，帧一停 +tail 才补，所以这里恒等于
+     * 「最后一帧之后多久切镜」。2.6→5 的动画 dur=118ms，配 80 会再干等一段
+     * 才开始糊，那段空档把动画的观感冲掉；40 是实测最贴的值（下限 20）。
+     */
+    private static volatile long sTail = 40L;
     /** 正在补发 J9 的调用里 → 跳过窗口判定，否则补发会被自己再拦死 */
     private static volatile boolean sInReplay;
     /** 逐帧取证日志的节流（一次渐变最多 1 行，见下方 Js 钩子里的说明） */

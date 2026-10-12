@@ -152,7 +152,16 @@ public final class LensSwitchFix implements IXposedHookLoadPackage {
      * 风险与回退：若 SAT 在专业模式下并不真的切相机，0.7/5x 会停在原镜头
      * （HAL clamp）。此时把 legend.satseamless=0 + force-stop 相机即可回退。
      */
-    private static volatile boolean sSat = false;
+    /**
+     * 默认 true —— v0.18.2 起把「已验证的正确值」固化进代码。
+     * 配置文件里若有此键则以文件为准；只有**文件缺失/被清空**时才用这里。
+     *
+     * 为什么固化：config.conf 长在相机私有目录 /data/data/com.android.camera/
+     * files/camport/ 下，**卸载相机会被 Android 一并删掉**，模块随即回落默认值。
+     * 默认 false 会让 n1 不强制 → 1↔0.7 走 w9 真 close→open → 糊半秒
+     * （10-12 实测复现过一次）。
+     */
+    private static volatile boolean sSat = true;
     private static volatile int sSatLog;
     /**
      * J9 本次的目标倍率（args[1]）。用来把 SAT 无缝只开给超广角。
@@ -174,11 +183,15 @@ public final class LensSwitchFix implements IXposedHookLoadPackage {
      *   关长焦（tele→wide）无缝，因为 wide 是常驻主机，关掉副机不重启；
      *   开长焦（wide→tele）必须 close→open，所以 2.6→5 必糊半秒。
      *
-     * legend.tele_gate=99 → 2.6→5 也强制 n1=true，不 w9：**不模糊**，
-     * 但镜头不重启，5x 可能落在 wide 上（数字裁切）——效果需实测判定。
-     * =4.5（默认）→ 保持真切长焦。
+     * legend.tele_gate 默认 **99**（v0.18.2 固化已验证值）：2.6→5 走无缝，
+     * 不 w9 不重启。改回 4.5 = 恢复真切长焦 + 那半秒模糊。
+     * 配置文件里有此键时以文件为准。
+     *
+     * 10-12 实测本机的不对称性：
+     *   关长焦（tele→wide）无缝，因为 wide 是常驻主机，关掉副机不重启；
+     *   开长焦（wide→tele）走 w9 必须 close→open，所以 4.5 那版 2.6→5 必糊半秒。
      */
-    private static volatile float sTeleGate = 4.5f;
+    private static volatile float sTeleGate = 99f;
     /**
      * J9 把组件设成 "tele" 时改写成 "Standalone"（默认开）。
      *
@@ -192,9 +205,10 @@ public final class LensSwitchFix implements IXposedHookLoadPackage {
      * "Standalone" 也是 app 的一等镜头类型（data/data/i.java：
      * wide=0 / ultra=2 / tele=4 / Standalone=5）。
      *
-     * kill switch：legend.telefix_standalone=0 → 不改写。
+     * kill switch：legend.telefix_standalone=1 → 改写。
+     * 默认 **false**（v0.18.2 固化已验证值，配置有键则以文件为准）。
      */
-    private static volatile boolean sTeleStandalone = true;
+    private static volatile boolean sTeleStandalone = false;
     /** 低于此倍率不干预（默认 1.5，正好落在 1x 与 2x 之间） */
     private static volatile float sMinZoom = 1.5f;
     private static float sLoggedZoom = Float.NaN;
