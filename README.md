@@ -612,6 +612,36 @@ legend.noblur_modes=171         # 这些模式的切镜**不要**模糊盖板（
 
 ---
 
+## 相机 6.8 适配：zoomcycle 类名改名（v2.x0 → v2.y0）
+
+相机 **6.7 → 6.8.002090.2** 把「重复点按变焦按钮算下一档」的变焦 ComponentData 类
+从 `Lv2/x0;` 改名成了 `Lv2/y0;`（jadx 里分别叫 `p177v2.x0` / `p750v2.y0`）。
+方法 `n(int)` / `getComponentValue` / `setComponentValue` / `getItems()` **全没动，只有类名变**。
+
+后果：`ZoomCycleFix`（点按循环 5→10→20）在 6.8 上钩 `v2.x0.n(int)` 会抛
+`NoSuchMethodError: v2.x0#n[int]`，拍照模式点「5」回到 1x、点按不再循环放大。
+
+**定位手法**（不猜类名，走调用方）：反编译相机 `ZoomRatioToggleView.onClick` 的字节码
+（`--comments-level debug`，方法体被 jadx 跳过时才看得到），里面有铁证：
+
+```
+int r5 = r0.q                    // mode
+java.lang.String r5 = r1.n(r5)  // r1 = v2.y0，调 n(mode) 算下一档
+"currentValue = " + cur + " nextValue = " + next   // 与 6.7 现场日志逐字吻合
+r1.setComponentValue(r3, r5)
+```
+
+**修法**：把模块 `classes3.dex` 里那 2 处字符串 `v2.x0`→`v2.y0`（同长度原地替换，
+同步重算 dex 头 adler32 + SHA-1），其余逐字节不动。实测 `hook v2.y0.n(int) ok`，
+拍照 5→10→20→5 循环恢复。
+
+> 专业模式(167)重按**不走**这条 `n()` 路——相机 `onClick` 里有个模式白名单
+> `{163,168,171,232,256}` 才进循环分支，167 被排除、拐进「弹变焦轮盘」分支。
+> 那段判定写死在相机 App 里，改它要动 199MB 的相机 APK（重签重装、可能搞崩相机），
+> 故专业模式**保留轮盘**（左右滑仍可精确微调）。
+
+---
+
 ## 致谢 / 归属
 
 - **[XiaomiCamPort]** —— 原 LSPosed 模块，本仓库的所有 hook 都是追加在它之上。

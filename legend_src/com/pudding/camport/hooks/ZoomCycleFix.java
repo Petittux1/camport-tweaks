@@ -22,7 +22,7 @@ import java.util.Locale;
  * ============================================================
  * 重复点按「当前已选中」的按钮不会走 p0.Ds，而是走另一条路：
  *   ZoomRatioToggleView.onClick
- *     -> x0.n(int)                     （dex Lv2/x0; -> jadx p177v2.x0）
+ *     -> y0.n(int)                     （6.7: Lv2/x0;  6.8: Lv2/y0;  方法名没变）
  *     -> setComponentValue + ZoomRatioToggleView.M.Is(value, index)
  *
  * x0.n() 不是按「显示行」循环，而是按 c1() 建出来的**档位(gear)项表**循环：
@@ -76,8 +76,13 @@ public final class ZoomCycleFix implements IXposedHookLoadPackage {
     private static final String HEAD = "变焦循环: ";
 
     private static final String C_CAMERA_PKG = "com.android.camera";
-    /** dex Lv2/x0;（jadx 叫 p177v2.x0），已在 ZoomProbe.C_SWITCH_ZOOM 交叉验证 */
-    private static final String C_SWITCH_ZOOM = "v2.x0";
+    /**
+     * 变焦 ComponentData 类。相机 6.7 是 Lv2/x0;（jadx p177v2.x0），
+     * 相机 6.8.002090.2 改名为 Lv2/y0;（jadx p750v2.y0）——方法 n(int)/getComponentValue/
+     * setComponentValue/getItems 全没变，只有类名变。已用 dexdump+jadx 字节码
+     * （ZoomRatioToggleView.onClick: v2.y0.n(mode) -> "currentValue/nextValue" 日志）交叉确认。
+     */
+    private static final String C_SWITCH_ZOOM = "v2.y0";
 
     private static ClassLoader sCl;
     private static boolean sInstalled;
