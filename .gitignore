@@ -26,6 +26,16 @@
 *.jks
 *.idsig
 
+# ---- 保密红线：兄弟的加密算法源码，永不入库 ----
+# com/leicainstant（LegendCodec/M9Codec/Pipeline/容器装配）与 com/nezha
+# 是兄弟逆向的徕卡/传奇核心算法，只留在本地。后面的规则覆盖前面的 !legend_src。
+# 合并进 camport 时只搬 hook 逻辑（几十行），算法本体一个字节都不进 git。
+legend_src/com/leicainstant/
+legend_src/com/nezha/
+
 # ---- KSU 模块（camzoom）源码 ----
 !ksu-module
 !ksu-module/**
+
+# ---- 状态/回退备份文件不入库（覆盖前面的 !legend_src）----
+*.v2bak
